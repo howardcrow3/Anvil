@@ -39,6 +39,12 @@ private struct ChatEventData: Sendable {
     }
 }
 
+struct PermissionRequest: Identifiable, Sendable {
+    let id: String
+    let toolName: String
+    let arguments: [String: String]
+}
+
 @Observable @MainActor
 final class ChatViewModel {
     var messages: [Message] = []
@@ -47,6 +53,8 @@ final class ChatViewModel {
     var streamingContent = ""
     var currentSessionId: UUID?
     var terminalOutput: [String] = []
+    var isPlanningMode = false
+    var pendingPermission: PermissionRequest?
 
     private let ipcClient: IPCClient
 
@@ -98,6 +106,15 @@ final class ChatViewModel {
             if let name = messages.last?.toolCalls.last(where: { $0.serverID == serverID })?.name,
                name == "bash" || name == "execute_command" {
                 terminalOutput.append(content)
+            }
+
+        case "permission_request":
+            if let reqId = event.id, let toolName = event.name {
+                pendingPermission = PermissionRequest(
+                    id: reqId,
+                    toolName: toolName,
+                    arguments: event.arguments
+                )
             }
 
         case "done":
@@ -165,6 +182,23 @@ final class ChatViewModel {
         currentSessionId = session.id
         messages = []
         terminalOutput = []
+    }
+
+    func togglePlanningMode() async {
+        let method = isPlanningMode ? "planning.stop" : "planning.start"
+        guard ipcClient.isConnected else { return }
+        let _ = try? await ipcClient.sendRequest(method: method)
+        isPlanningMode.toggle()
+    }
+
+    func respondToPermission(approved: Bool) async {
+        guard let request = pendingPermission else { return }
+        pendingPermission = nil
+        guard ipcClient.isConnected else { return }
+        let _ = try? await ipcClient.sendRequest(method: "permission.respond", params: [
+            "request_id": request.id,
+            "approved": approved
+        ])
     }
 
     func connectToRuntime(socketPath: String) async {

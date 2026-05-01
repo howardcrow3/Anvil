@@ -26,6 +26,8 @@ class AnvilSettings(BaseModel):
     ollama_port: int = 11434
     endpoints: list[dict[str, Any]] = Field(default_factory=list)
     mcp_servers: list[dict[str, Any]] = Field(default_factory=list)
+    tool_allow_list: list[str] = Field(default_factory=list)
+    tool_deny_list: list[str] = Field(default_factory=list)
 
 
 class SettingsManager:

@@ -5,7 +5,17 @@ struct MessageInputView: View {
     @State private var showSlashCommands = false
     @FocusState private var isFocused: Bool
 
-    private let slashCommands = ["/help", "/clear", "/model", "/session", "/team"]
+    private let slashCommands: [(command: String, description: String)] = [
+        ("/help", "Show available commands"),
+        ("/clear", "Clear conversation"),
+        ("/compact", "Compress conversation history"),
+        ("/plan", "Toggle planning mode"),
+        ("/resume", "Resume last session"),
+        ("/settings", "Show current settings"),
+        ("/model", "Switch model"),
+        ("/session", "Session management"),
+        ("/team", "Team management"),
+    ]
 
     var body: some View {
         @Bindable var vm = chatVM
@@ -57,15 +67,23 @@ struct MessageInputView: View {
 
     private var slashCommandList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(filteredCommands, id: \.self) { command in
+            ForEach(filteredCommands, id: \.command) { item in
                 Button {
-                    chatVM.inputText = command + " "
+                    chatVM.inputText = item.command + " "
                     showSlashCommands = false
                 } label: {
-                    Text(command)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack {
+                        Text(item.command)
+                            .font(.system(.body, design: .monospaced))
+                            .fontWeight(.medium)
+                        Spacer()
+                        Text(item.description)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
             }
@@ -77,9 +95,9 @@ struct MessageInputView: View {
         .padding(.top, 4)
     }
 
-    private var filteredCommands: [String] {
+    private var filteredCommands: [(command: String, description: String)] {
         let input = chatVM.inputText.lowercased()
         if input == "/" { return slashCommands }
-        return slashCommands.filter { $0.hasPrefix(input) }
+        return slashCommands.filter { $0.command.hasPrefix(input) }
     }
 }

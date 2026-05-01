@@ -15,7 +15,10 @@ from typing import Any
 from rich.logging import RichHandler
 
 from anvil_agent.agent_loop import AgentLoop, SYSTEM_PROMPT
+from anvil_agent.git.detector import GitDetector
+from anvil_agent.git.service import GitService
 from anvil_agent.hooks.engine import HooksEngine, HookEvent
+from anvil_agent.planning.manager import PlanManager
 from anvil_agent.ipc.server import IPCServer
 from anvil_agent.mcp.client import MCPClient
 from anvil_agent.memory.manager import MemoryManager
@@ -26,7 +29,10 @@ from anvil_agent.models.types import ChatMessage
 from anvil_agent.services.model_catalog import get_cloud_models, MODEL_CATALOG
 from anvil_agent.services.ollama_service import OllamaService
 from anvil_agent.session.manager import SessionManager
+from anvil_agent.permissions import PermissionManager, PermissionMode
 from anvil_agent.settings import SettingsManager
+from anvil_agent.skills.executor import SkillExecutor
+from anvil_agent.skills.loader import SkillLoader
 from anvil_agent.teams.manager import TeamManager
 from anvil_agent.tools import create_default_registry
 
@@ -85,15 +91,34 @@ class AnvilRuntime:
         self._session_manager = SessionManager()
         self._memory_manager = MemoryManager(self._project_dir)
         self._hooks_engine = HooksEngine()
+        self._plan_manager = PlanManager()
+        self._skill_loader = SkillLoader(self._project_dir)
+        self._skill_loader.load_project_skills()
+        self._skill_executor = SkillExecutor(
+            self._skill_loader, self._session_manager, self._settings
+        )
         self._mcp_client = MCPClient()
         self._team_manager = TeamManager()
         self._ollama = OllamaService()
         self._ipc = IPCServer(args.socket_path)
 
+        # Permissions
+        perm_mode_str = self._settings.get("permission_mode") or "ask"
+        try:
+            perm_mode = PermissionMode(perm_mode_str)
+        except ValueError:
+            perm_mode = PermissionMode.ASK
+        self._permission_manager = PermissionManager(mode=perm_mode)
+        self._permission_manager.set_overrides(
+            allow_list=self._settings.get("tool_allow_list"),
+            deny_list=self._settings.get("tool_deny_list"),
+        )
+
         # State
         self._current_session: str | None = None
         self._agent_loop: AgentLoop | None = None
         self._messages: list[ChatMessage] = []
+        self._git_service: GitService | None = None
 
     async def start(self) -> None:
         """Initialize and start the runtime."""
@@ -112,7 +137,18 @@ class AnvilRuntime:
             tool_registry=self._tool_registry,
             system_prompt=system_prompt,
             working_directory=str(self._project_dir),
+            permission_manager=self._permission_manager,
         )
+
+        # Detect git repository
+        if await GitDetector.is_git_repo(self._project_dir):
+            repo_root = await GitDetector.get_repo_root(self._project_dir)
+            if repo_root:
+                self._git_service = GitService(repo_root)
+                logger.info("Git repository detected at %s", repo_root)
+
+        # Load hooks from config files
+        self._hooks_engine.load_from_files(project_dir=self._project_dir)
 
         # Start MCP servers
         await self._mcp_client.load_and_start(self._tool_registry)
@@ -239,6 +275,15 @@ class AnvilRuntime:
         self._ipc.register_method("team.status", self._handle_team_status)
         self._ipc.register_method("settings.get", self._handle_settings_get)
         self._ipc.register_method("settings.set", self._handle_settings_set)
+        self._ipc.register_method("planning.start", self._handle_planning_start)
+        self._ipc.register_method("planning.stop", self._handle_planning_stop)
+        self._ipc.register_method("planning.save", self._handle_planning_save)
+        self._ipc.register_method("planning.list", self._handle_planning_list)
+        self._ipc.register_method("skills.list", self._handle_skills_list)
+        self._ipc.register_method("permission.respond", self._handle_permission_respond)
+        self._ipc.register_method("git.status", self._handle_git_status)
+        self._ipc.register_method("git.log", self._handle_git_log)
+        self._ipc.register_method("git.diff", self._handle_git_diff)
 
     # ── Chat Handlers ─────────────────────────────────────────────
 
@@ -248,6 +293,45 @@ class AnvilRuntime:
         message = params.get("message", "")
         if not message:
             return {"error": "No message provided"}
+
+        # Handle slash commands before entering the agent loop
+        if message.startswith("/"):
+            result = await self._skill_executor.handle_command(
+                message, self._messages
+            )
+            if result is not None:
+                action = result.get("action")
+                if action == "toggle_plan_mode":
+                    if self._agent_loop:
+                        self._agent_loop._planning_mode = not self._agent_loop._planning_mode
+                        mode = "planning" if self._agent_loop._planning_mode else "normal"
+                        result["text"] = f"Switched to {mode} mode."
+                elif action == "resume_last_session":
+                    sessions = self._session_manager.list_sessions()
+                    if sessions:
+                        sid = sessions[0]["id"]
+                        msgs = self._session_manager.load_messages(sid)
+                        self._current_session = sid
+                        self._messages = msgs
+                        result["text"] = f"Resumed session ({len(msgs)} messages)."
+                    else:
+                        result["text"] = "No previous sessions found."
+                await self._ipc.send_notification(
+                    writer, "chat.event",
+                    {"type": "text_delta", "text": result.get("text", "")},
+                )
+                await self._ipc.send_notification(
+                    writer, "chat.event",
+                    {"type": "done", "stop_reason": "command"},
+                )
+                return {"status": "ok"}
+
+        # Fire UserPromptSubmit hook before processing
+        allowed, _ = await self._hooks_engine.run(
+            HookEvent.USER_PROMPT_SUBMIT, {"message": message}
+        )
+        if not allowed:
+            return {"error": "Message blocked by hook"}
 
         user_msg = ChatMessage(role="user", content=message)
         self._messages.append(user_msg)
@@ -378,6 +462,8 @@ class AnvilRuntime:
                     tool_registry=self._tool_registry,
                     system_prompt=self._agent_loop._system_prompt,
                     working_directory=str(self._project_dir),
+                    planning_mode=self._agent_loop._planning_mode,
+                    permission_manager=self._permission_manager,
                 )
             return {"status": "ok", "active": model_id}
         except ValueError as e:
@@ -422,6 +508,83 @@ class AnvilRuntime:
             return {"status": "ok", "key": key, "value": value}
         except KeyError as e:
             return {"error": str(e)}
+
+    # ── Planning Handlers ─────────────────────────────────────────
+
+    async def _handle_planning_start(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        if self._agent_loop:
+            self._agent_loop._planning_mode = True
+        return {"status": "planning"}
+
+    async def _handle_planning_stop(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        if self._agent_loop:
+            self._agent_loop._planning_mode = False
+        return {"status": "normal"}
+
+    async def _handle_planning_save(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        description = params.get("description", "")
+        content = params.get("content", "")
+        if not description or not content:
+            return {"error": "description and content are required"}
+        plan_id = self._plan_manager.save_plan(
+            description, content, project_dir=self._project_dir
+        )
+        return {"status": "ok", "plan_id": plan_id}
+
+    async def _handle_planning_list(
+        self, params: dict[str, Any], writer: Any
+    ) -> list[dict[str, Any]]:
+        return self._plan_manager.list_plans(project_dir=self._project_dir)
+
+    # ── Permission Handlers ────────────────────────────────────────
+
+    async def _handle_permission_respond(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        request_id = params.get("request_id", "")
+        approved = params.get("approved", False)
+        if not request_id:
+            return {"error": "No request_id provided"}
+        self._permission_manager.respond(request_id, approved)
+        return {"status": "ok"}
+
+    # ── Skills Handlers ──────────────────────────────────────────
+
+    async def _handle_skills_list(
+        self, params: dict[str, Any], writer: Any
+    ) -> list[dict[str, Any]]:
+        return self._skill_loader.get_all_commands()
+
+    # ── Git Handlers ─────────────────────────────────────────────
+
+    async def _handle_git_status(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        if not self._git_service:
+            return {"error": "Not a git repository"}
+        return await self._git_service.get_status()
+
+    async def _handle_git_log(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        if not self._git_service:
+            return {"error": "Not a git repository"}
+        count = params.get("count", 10)
+        return {"commits": await self._git_service.get_log(n=count)}
+
+    async def _handle_git_diff(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        if not self._git_service:
+            return {"error": "Not a git repository"}
+        staged = params.get("staged", False)
+        return {"diff": await self._git_service.get_diff(staged=staged)}
 
 
 async def async_main() -> None:

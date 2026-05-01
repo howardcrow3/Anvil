@@ -8,11 +8,14 @@ from typing import Any, AsyncIterator
 
 from anvil_agent.models.router import ModelProvider
 from anvil_agent.models.types import ChatChunk, ChatMessage, ToolCallDelta, ToolCallRequest, ToolResult
+from anvil_agent.permissions import PermissionManager
 from anvil_agent.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 MAX_ITERATIONS = 50
+
+BLOCKED_IN_PLANNING = {"write_file", "edit_file", "bash"}
 
 SYSTEM_PROMPT = """You are Anvil, a powerful AI coding assistant running locally on the user's machine.
 
@@ -26,6 +29,12 @@ Guidelines:
 - Be concise and direct in your responses
 - Ask the user for clarification when requirements are ambiguous"""
 
+PLANNING_SYSTEM_PROMPT = (
+    "You are in planning mode. Explore the codebase, analyze requirements, and "
+    "create a detailed implementation plan. Do NOT make any changes to files. "
+    "Only use read-only tools: read_file, glob, grep, web_search, web_fetch."
+)
+
 
 class AgentLoop:
     """The core agent loop that processes messages and executes tools."""
@@ -37,6 +46,8 @@ class AgentLoop:
         system_prompt: str = SYSTEM_PROMPT,
         max_iterations: int = MAX_ITERATIONS,
         working_directory: str | None = None,
+        planning_mode: bool = False,
+        permission_manager: PermissionManager | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tool_registry
@@ -44,6 +55,8 @@ class AgentLoop:
         self._max_iterations = max_iterations
         self._cancelled = False
         self._working_directory = working_directory
+        self._planning_mode = planning_mode
+        self._permission_manager = permission_manager
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -63,8 +76,9 @@ class AgentLoop:
         """
         self._cancelled = False
 
+        active_prompt = PLANNING_SYSTEM_PROMPT if self._planning_mode else self._system_prompt
         full_messages = [
-            ChatMessage(role="system", content=self._system_prompt),
+            ChatMessage(role="system", content=active_prompt),
             *messages,
         ]
 
@@ -146,6 +160,70 @@ class AgentLoop:
                     "name": tc.name,
                     "arguments": tc.arguments,
                 }
+
+                # Block write tools in planning mode
+                if self._planning_mode and tc.name in BLOCKED_IN_PLANNING:
+                    error_content = f"Tool '{tc.name}' is blocked in planning mode"
+                    yield {
+                        "type": "tool_result",
+                        "id": tc.id,
+                        "content": error_content,
+                        "is_error": True,
+                    }
+                    full_messages.append(
+                        ChatMessage(
+                            role="tool",
+                            content=error_content,
+                            tool_call_id=tc.id,
+                        )
+                    )
+                    continue
+
+                # Permission check
+                if self._permission_manager:
+                    decision = self._permission_manager.check_sync(tc.name)
+                    if decision == "deny":
+                        error_content = "Tool use denied by permission policy"
+                        yield {
+                            "type": "tool_result",
+                            "id": tc.id,
+                            "content": error_content,
+                            "is_error": True,
+                        }
+                        full_messages.append(
+                            ChatMessage(
+                                role="tool",
+                                content=error_content,
+                                tool_call_id=tc.id,
+                            )
+                        )
+                        continue
+                    elif decision == "ask":
+                        yield {
+                            "type": "permission_request",
+                            "request_id": tc.id,
+                            "tool_name": tc.name,
+                            "arguments": tc.arguments,
+                        }
+                        approved = await self._permission_manager.request_permission(
+                            tc.id, tc.name, tc.arguments
+                        )
+                        if not approved:
+                            error_content = "Tool use denied by user"
+                            yield {
+                                "type": "tool_result",
+                                "id": tc.id,
+                                "content": error_content,
+                                "is_error": True,
+                            }
+                            full_messages.append(
+                                ChatMessage(
+                                    role="tool",
+                                    content=error_content,
+                                    tool_call_id=tc.id,
+                                )
+                            )
+                            continue
 
                 # Inject working_directory for tools that accept it
                 if self._working_directory and "working_dir" not in tc.arguments:
