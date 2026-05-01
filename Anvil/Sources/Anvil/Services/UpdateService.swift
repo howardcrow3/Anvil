@@ -22,7 +22,7 @@ final class UpdateService: @unchecked Sendable {
         )
     }
 
-    func checkForUpdates() {
+    @MainActor func checkForUpdates() {
         updaterController.checkForUpdates(nil)
     }
 }

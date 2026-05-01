@@ -4,13 +4,15 @@ import AppKit
 final class NotificationService: @unchecked Sendable {
     private var hasPermission = false
 
-    func requestPermission() {
+    @MainActor func requestPermission() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            self.hasPermission = granted
+            Task { @MainActor in
+                self.hasPermission = granted
+            }
         }
     }
 
-    func notifyAgentComplete(sessionName: String, summary: String) {
+    @MainActor func notifyAgentComplete(sessionName: String, summary: String) {
         guard hasPermission, !NSApp.isActive else { return }
         let content = UNMutableNotificationContent()
         content.title = "Agent Complete"
@@ -21,7 +23,7 @@ final class NotificationService: @unchecked Sendable {
         UNUserNotificationCenter.current().add(request)
     }
 
-    func notifyTeamComplete(teamName: String) {
+    @MainActor func notifyTeamComplete(teamName: String) {
         guard hasPermission, !NSApp.isActive else { return }
         let content = UNMutableNotificationContent()
         content.title = "Team Complete"
@@ -31,7 +33,7 @@ final class NotificationService: @unchecked Sendable {
         UNUserNotificationCenter.current().add(request)
     }
 
-    func notifyModelReady(modelName: String) {
+    @MainActor func notifyModelReady(modelName: String) {
         guard hasPermission, !NSApp.isActive else { return }
         let content = UNMutableNotificationContent()
         content.title = "Model Ready"

@@ -5,7 +5,7 @@ final class MenuBarService: @unchecked Sendable {
     private var statusItem: NSStatusItem?
     private var isAgentRunning = false
 
-    func setup() {
+    @MainActor func setup() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
             button.image = NSImage(systemSymbolName: "hammer.fill", accessibilityDescription: "Anvil")
@@ -15,12 +15,12 @@ final class MenuBarService: @unchecked Sendable {
         statusItem = item
     }
 
-    func updateAgentStatus(running: Bool) {
+    @MainActor func updateAgentStatus(running: Bool) {
         isAgentRunning = running
         statusItem?.menu = buildMenu()
     }
 
-    func tearDown() {
+    @MainActor func tearDown() {
         if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
             statusItem = nil
