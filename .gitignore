@@ -1,0 +1,64 @@
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+
+# App data (local only)
+.anvil/
+
+# Secrets
+.env
+*.pem
+*.key
+
+# Build artifacts
+*.dmg
+*.app
+*.pkg
+*.zip
+
+# PyInstaller
+*.spec
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Ollama models (too large for git)
+models/
