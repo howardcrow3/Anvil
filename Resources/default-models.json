@@ -1,0 +1,114 @@
+{
+  "cloud_models": [
+    {
+      "id": "claude-opus-4-6",
+      "name": "Claude Opus 4",
+      "provider": "anthropic",
+      "description": "Most capable Claude model for complex tasks",
+      "context_window": 200000,
+      "supports_tools": true
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "name": "Claude Sonnet 4",
+      "provider": "anthropic",
+      "description": "Balanced performance and speed",
+      "context_window": 200000,
+      "supports_tools": true
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "name": "Claude Haiku 3.5",
+      "provider": "anthropic",
+      "description": "Fastest Claude model for simple tasks",
+      "context_window": 200000,
+      "supports_tools": true
+    }
+  ],
+  "local_models": [
+    {
+      "id": "gemma3:4b",
+      "name": "Gemma 3 4B",
+      "provider": "google",
+      "parameters": "4B",
+      "min_ram_gb": 4,
+      "description": "Google's efficient small model",
+      "best_for": "Fast responses, simple tasks",
+      "supports_tools": true,
+      "context_window": 8192,
+      "ollama_tag": "gemma3:4b"
+    },
+    {
+      "id": "gemma3:12b",
+      "name": "Gemma 3 12B",
+      "provider": "google",
+      "parameters": "12B",
+      "min_ram_gb": 10,
+      "description": "Google's capable mid-size model",
+      "best_for": "Good all-around performance",
+      "supports_tools": true,
+      "context_window": 8192,
+      "ollama_tag": "gemma3:12b"
+    },
+    {
+      "id": "llama4-scout",
+      "name": "Llama 4 Scout",
+      "provider": "meta",
+      "parameters": "17B active (109B MoE)",
+      "min_ram_gb": 12,
+      "description": "Meta's mixture-of-experts model",
+      "best_for": "Complex reasoning tasks",
+      "supports_tools": true,
+      "context_window": 131072,
+      "ollama_tag": "llama4:scout"
+    },
+    {
+      "id": "mistral-small",
+      "name": "Mistral Small 3.2",
+      "provider": "mistral",
+      "parameters": "24B",
+      "min_ram_gb": 16,
+      "description": "Mistral's strong coding model",
+      "best_for": "Code generation and review",
+      "supports_tools": true,
+      "context_window": 32768,
+      "ollama_tag": "mistral-small:24b"
+    },
+    {
+      "id": "phi4",
+      "name": "Phi-4",
+      "provider": "microsoft",
+      "parameters": "14B",
+      "min_ram_gb": 10,
+      "description": "Microsoft's efficient reasoning model",
+      "best_for": "Efficient reasoning, math",
+      "supports_tools": true,
+      "context_window": 16384,
+      "ollama_tag": "phi4:14b"
+    },
+    {
+      "id": "qwen3:8b",
+      "name": "Qwen 3 8B",
+      "provider": "alibaba",
+      "parameters": "8B",
+      "min_ram_gb": 6,
+      "description": "Alibaba's multilingual model",
+      "best_for": "Multilingual tasks, coding",
+      "supports_tools": true,
+      "context_window": 32768,
+      "ollama_tag": "qwen3:8b"
+    },
+    {
+      "id": "qwen3:32b",
+      "name": "Qwen 3 32B",
+      "provider": "alibaba",
+      "parameters": "32B",
+      "min_ram_gb": 20,
+      "description": "Alibaba's large model for heavy tasks",
+      "best_for": "Complex tasks, M3/M4 Pro+",
+      "supports_tools": true,
+      "context_window": 32768,
+      "ollama_tag": "qwen3:32b"
+    }
+  ]
+}
