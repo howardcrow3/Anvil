@@ -7,12 +7,12 @@ struct AnvilApp: App {
     @State private var chatVM: ChatViewModel?
     @State private var sessionVM: SessionViewModel?
     @State private var modelVM: ModelViewModel?
-    @State private var teamVM = TeamViewModel()
+    @State private var teamVM: TeamViewModel?
     @State private var settingsVM: SettingsViewModel?
 
     var body: some Scene {
         WindowGroup {
-            if let chatVM, let sessionVM, let modelVM, let settingsVM {
+            if let chatVM, let sessionVM, let modelVM, let teamVM, let settingsVM {
                 ContentView()
                     .environment(chatVM)
                     .environment(sessionVM)
@@ -71,6 +71,7 @@ struct AnvilApp: App {
         chatVM = ChatViewModel(ipcClient: ipcClient)
         sessionVM = SessionViewModel(ipcClient: ipcClient)
         modelVM = ModelViewModel(ipcClient: ipcClient)
+        teamVM = TeamViewModel(ipcClient: ipcClient)
         settingsVM = SettingsViewModel(ipcClient: ipcClient)
     }
 

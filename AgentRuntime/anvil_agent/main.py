@@ -9,6 +9,7 @@ import os
 import signal
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,7 @@ from anvil_agent.settings import SettingsManager
 from anvil_agent.skills.executor import SkillExecutor
 from anvil_agent.skills.loader import SkillLoader
 from anvil_agent.teams.manager import TeamManager
+from anvil_agent.teams.orchestrator import TeamOrchestrator
 from anvil_agent.tools import create_default_registry
 
 logger = logging.getLogger(__name__)
@@ -99,6 +101,9 @@ class AnvilRuntime:
         )
         self._mcp_client = MCPClient()
         self._team_manager = TeamManager()
+        self._team_orchestrator = TeamOrchestrator(
+            self._team_manager, project_dir=self._project_dir
+        )
         self._ollama = OllamaService()
         self._ipc = IPCServer(args.socket_path)
 
@@ -152,6 +157,9 @@ class AnvilRuntime:
 
         # Start MCP servers
         await self._mcp_client.load_and_start(self._tool_registry)
+
+        # Wire IPC into team manager for broadcasting
+        self._team_manager.set_ipc(self._ipc)
 
         # Register IPC methods
         self._register_ipc_methods()
@@ -273,6 +281,19 @@ class AnvilRuntime:
         self._ipc.register_method("model.select", self._handle_model_select)
         self._ipc.register_method("team.create", self._handle_team_create)
         self._ipc.register_method("team.status", self._handle_team_status)
+        self._ipc.register_method("team.spawn", self._handle_team_spawn)
+        self._ipc.register_method("team.stop_teammate", self._handle_team_stop_teammate)
+        self._ipc.register_method("team.stop_all", self._handle_team_stop_all)
+        self._ipc.register_method("team.task.create", self._handle_team_task_create)
+        self._ipc.register_method("team.task.update", self._handle_team_task_update)
+        self._ipc.register_method("team.task.list", self._handle_team_task_list)
+        self._ipc.register_method("team.message.send", self._handle_team_message_send)
+        self._ipc.register_method("team.message.read", self._handle_team_message_read)
+        self._ipc.register_method("team.teammates", self._handle_team_teammates)
+        self._ipc.register_method("team.orchestrate", self._handle_team_orchestrate)
+        self._ipc.register_method("team.auto_assign", self._handle_team_auto_assign)
+        self._ipc.register_method("team.complete_task", self._handle_team_complete_task)
+        self._ipc.register_method("team.progress", self._handle_team_progress)
         self._ipc.register_method("settings.get", self._handle_settings_get)
         self._ipc.register_method("settings.set", self._handle_settings_set)
         self._ipc.register_method("planning.start", self._handle_planning_start)
@@ -477,6 +498,14 @@ class AnvilRuntime:
         name = params.get("name", "team")
         members = params.get("members", [])
         team_id = await self._team_manager.create_team(name, members)
+        # Also create any tasks specified
+        for task_spec in params.get("tasks", []):
+            self._team_manager.create_task(
+                team_id,
+                title=task_spec.get("title", ""),
+                description=task_spec.get("description", ""),
+                depends_on=task_spec.get("depends_on", []),
+            )
         return {"team_id": team_id}
 
     async def _handle_team_status(
@@ -484,6 +513,122 @@ class AnvilRuntime:
     ) -> dict[str, Any]:
         team_id = params.get("team_id", "")
         return await self._team_manager.get_status(team_id)
+
+    async def _handle_team_spawn(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        team_id = params.get("team_id", "")
+        name = params.get("name", "")
+        role = params.get("role", "general")
+        model = params.get("model", "claude-sonnet-4-6")
+        provider = params.get("provider", "claude")
+        socket_path = f"/tmp/anvil_teammate_{uuid.uuid4().hex[:8]}.sock"
+        member_id = await self._team_manager.spawn_teammate(
+            team_id, role=role, name=name,
+            socket_path=socket_path,
+            project_dir=str(self._project_dir),
+            model=model, provider=provider,
+        )
+        return {"member_id": member_id, "socket_path": socket_path}
+
+    async def _handle_team_stop_teammate(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        member_id = params.get("member_id", "")
+        if not member_id:
+            return {"error": "No member_id provided"}
+        await self._team_manager.stop_teammate(member_id)
+        return {"status": "ok"}
+
+    async def _handle_team_stop_all(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        await self._team_manager.stop_all()
+        return {"status": "ok"}
+
+    async def _handle_team_task_create(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        team_id = params.get("team_id", "")
+        title = params.get("title", "")
+        description = params.get("description", "")
+        depends_on = params.get("depends_on", [])
+        task_id = self._team_manager.create_task(
+            team_id, title=title, description=description, depends_on=depends_on,
+        )
+        return {"task_id": task_id}
+
+    async def _handle_team_task_update(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        task_id = params.get("task_id", "")
+        if not task_id:
+            return {"error": "No task_id provided"}
+        updates = {k: v for k, v in params.items() if k != "task_id"}
+        task = self._team_manager.update_task(task_id, **updates)
+        if task is None:
+            return {"error": "Task not found"}
+        return {"task": task}
+
+    async def _handle_team_task_list(
+        self, params: dict[str, Any], writer: Any
+    ) -> list[dict[str, Any]]:
+        team_id = params.get("team_id", "")
+        return self._team_manager.list_tasks(team_id)
+
+    async def _handle_team_message_send(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        team_id = params.get("team_id", "")
+        from_agent = params.get("from", "")
+        to_agent = params.get("to", "")
+        content = params.get("content", "")
+        self._team_manager.send_message(team_id, from_agent, to_agent, content)
+        return {"status": "ok"}
+
+    async def _handle_team_message_read(
+        self, params: dict[str, Any], writer: Any
+    ) -> list[dict[str, Any]]:
+        team_id = params.get("team_id", "")
+        agent_name = params.get("agent_name", "")
+        return self._team_manager.read_messages(team_id, agent_name)
+
+    async def _handle_team_teammates(
+        self, params: dict[str, Any], writer: Any
+    ) -> list[dict[str, Any]]:
+        team_id = params.get("team_id", "")
+        return self._team_manager.list_teammates(team_id)
+
+    # ── Orchestrator Handlers ──────────────────────────────────────
+
+    async def _handle_team_orchestrate(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        team_id = await self._team_orchestrator.create_team_from_spec(params)
+        return {"team_id": team_id}
+
+    async def _handle_team_auto_assign(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        team_id = params.get("team_id", "")
+        assignments = await self._team_orchestrator.auto_assign_tasks(team_id)
+        return {"assignments": assignments}
+
+    async def _handle_team_complete_task(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        team_id = params.get("team_id", "")
+        member_id = params.get("member_id", "")
+        task_id = params.get("task_id", "")
+        return await self._team_orchestrator.handle_task_completion(
+            team_id, member_id, task_id
+        )
+
+    async def _handle_team_progress(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        team_id = params.get("team_id", "")
+        return self._team_orchestrator.get_team_progress(team_id)
 
     # ── Settings Handlers ─────────────────────────────────────────
 

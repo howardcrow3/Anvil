@@ -26,6 +26,9 @@ class HookEvent(str, Enum):
     SESSION_START = "SessionStart"
     SESSION_END = "SessionEnd"
     STOP = "Stop"
+    TASK_CREATED = "TaskCreated"
+    TASK_COMPLETED = "TaskCompleted"
+    TEAMMATE_IDLE = "TeammateIdle"
 
 
 class HooksEngine:
