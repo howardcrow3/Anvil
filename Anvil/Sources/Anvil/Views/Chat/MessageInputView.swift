@@ -1,8 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MessageInputView: View {
     @Environment(ChatViewModel.self) private var chatVM
     @State private var showSlashCommands = false
+    @State private var isDropTargeted = false
     @FocusState private var isFocused: Bool
 
     private let slashCommands: [(command: String, description: String)] = [
@@ -62,7 +64,36 @@ struct MessageInputView: View {
             .padding(12)
         }
         .background(.bar)
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.accentColor, lineWidth: 2)
+                    .background(Color.accentColor.opacity(0.05))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
+        .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+            handleDrop(providers)
+        }
         .onAppear { isFocused = true }
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        for provider in providers {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                guard let data = item as? Data,
+                      let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                let path = url.path
+                DispatchQueue.main.async {
+                    if chatVM.inputText.isEmpty {
+                        chatVM.inputText = path
+                    } else {
+                        chatVM.inputText += " " + path
+                    }
+                }
+            }
+        }
+        return true
     }
 
     private var slashCommandList: some View {

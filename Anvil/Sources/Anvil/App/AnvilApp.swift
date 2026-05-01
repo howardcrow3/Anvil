@@ -9,10 +9,16 @@ struct AnvilApp: App {
     @State private var modelVM: ModelViewModel?
     @State private var teamVM: TeamViewModel?
     @State private var settingsVM: SettingsViewModel?
+    @State private var updateService = UpdateService()
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     var body: some Scene {
         WindowGroup {
-            if let chatVM, let sessionVM, let modelVM, let teamVM, let settingsVM {
+            if !hasCompletedOnboarding {
+                OnboardingView {
+                    hasCompletedOnboarding = true
+                }
+            } else if let chatVM, let sessionVM, let modelVM, let teamVM, let settingsVM {
                 ContentView()
                     .environment(chatVM)
                     .environment(sessionVM)
@@ -53,6 +59,12 @@ struct AnvilApp: App {
             }
 
             CommandGroup(replacing: .help) {
+                Button("Check for Updates...") {
+                    updateService.checkForUpdates()
+                }
+
+                Divider()
+
                 Button("Anvil Help") {
                     // Open help
                 }
@@ -96,14 +108,19 @@ struct AnvilApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let ollamaService = OllamaService()
     let runtimeService = AgentRuntimeService()
+    let menuBarService = MenuBarService()
+    let notificationService = NotificationService()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        menuBarService.setup()
+        notificationService.requestPermission()
         Task {
             try? await ollamaService.start()
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        menuBarService.tearDown()
         runtimeService.stop()
         ollamaService.stop()
     }

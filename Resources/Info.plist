@@ -34,5 +34,7 @@
     <array>
         <string>arm64</string>
     </array>
+    <key>SUFeedURL</key>
+    <string>https://anvil-app.dev/appcast.xml</string>
 </dict>
 </plist>

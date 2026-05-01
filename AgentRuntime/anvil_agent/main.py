@@ -36,6 +36,8 @@ from anvil_agent.skills.executor import SkillExecutor
 from anvil_agent.skills.loader import SkillLoader
 from anvil_agent.teams.manager import TeamManager
 from anvil_agent.teams.orchestrator import TeamOrchestrator
+from anvil_agent.system.info import get_system_info, recommend_models
+from anvil_agent.system.monitor import PerformanceMonitor
 from anvil_agent.tools import create_default_registry
 
 logger = logging.getLogger(__name__)
@@ -105,6 +107,7 @@ class AnvilRuntime:
             self._team_manager, project_dir=self._project_dir
         )
         self._ollama = OllamaService()
+        self._perf_monitor = PerformanceMonitor()
         self._ipc = IPCServer(args.socket_path)
 
         # Permissions
@@ -294,6 +297,9 @@ class AnvilRuntime:
         self._ipc.register_method("team.auto_assign", self._handle_team_auto_assign)
         self._ipc.register_method("team.complete_task", self._handle_team_complete_task)
         self._ipc.register_method("team.progress", self._handle_team_progress)
+        self._ipc.register_method("system.info", self._handle_system_info)
+        self._ipc.register_method("system.stats", self._handle_system_stats)
+        self._ipc.register_method("system.recommend_models", self._handle_recommend_models)
         self._ipc.register_method("settings.get", self._handle_settings_get)
         self._ipc.register_method("settings.set", self._handle_settings_set)
         self._ipc.register_method("planning.start", self._handle_planning_start)
@@ -629,6 +635,25 @@ class AnvilRuntime:
     ) -> dict[str, Any]:
         team_id = params.get("team_id", "")
         return self._team_orchestrator.get_team_progress(team_id)
+
+    # ── System Handlers ──────────────────────────────────────────
+
+    async def _handle_system_info(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        return get_system_info()
+
+    async def _handle_system_stats(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        return self._perf_monitor.get_stats()
+
+    async def _handle_recommend_models(
+        self, params: dict[str, Any], writer: Any
+    ) -> list[dict[str, Any]]:
+        info = get_system_info()
+        available = info.get("available_ram_gb", 0)
+        return recommend_models(available)
 
     # ── Settings Handlers ─────────────────────────────────────────
 

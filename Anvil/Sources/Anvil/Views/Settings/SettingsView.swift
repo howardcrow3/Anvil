@@ -30,6 +30,12 @@ struct SettingsView: View {
 
             EndpointSettingsView()
                 .tabItem { Label("Endpoints", systemImage: "network") }
+
+            SystemSettingsTab()
+                .tabItem { Label("System", systemImage: "memorychip") }
+
+            UpdatesSettingsTab()
+                .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
         }
         .frame(width: 550, height: 400)
         .onAppear { settingsVM.loadSettings() }
@@ -201,6 +207,113 @@ struct SkillsSettingsTab: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+}
+
+struct SystemSettingsTab: View {
+    @State private var vm = SystemInfoViewModel()
+
+    var body: some View {
+        Form {
+            Section("Hardware") {
+                LabeledContent("Chip", value: vm.chip)
+                LabeledContent("Total RAM", value: String(format: "%.1f GB", vm.totalRAM))
+                LabeledContent("Available RAM", value: String(format: "%.1f GB", vm.availableRAM))
+            }
+
+            Section("GPU") {
+                LabeledContent("GPU", value: vm.gpuName)
+                LabeledContent("GPU Cores", value: vm.gpuCores)
+                LabeledContent("Metal Family", value: vm.metalFamily)
+            }
+
+            Section("Performance") {
+                HStack {
+                    Text("Memory Pressure")
+                    Spacer()
+                    Text(vm.memoryPressure.capitalized)
+                        .foregroundStyle(pressureColor)
+                }
+                if vm.inferenceCount > 0 {
+                    LabeledContent("Avg Tokens/sec", value: String(format: "%.1f", vm.avgTokensPerSec))
+                    LabeledContent("Avg Latency", value: String(format: "%.2fs", vm.avgElapsedSec))
+                    LabeledContent("Inferences", value: "\(vm.inferenceCount)")
+                } else {
+                    Text("No inference data yet.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let error = vm.errorMessage {
+                Section {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Section {
+                Button("Refresh") {
+                    Task { await vm.refresh() }
+                }
+                .disabled(vm.isLoading)
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+        .task { await vm.refresh() }
+    }
+
+    private var pressureColor: Color {
+        switch vm.memoryPressure {
+        case "normal": .green
+        case "warning": .orange
+        case "critical": .red
+        default: .secondary
+        }
+    }
+}
+
+struct UpdatesSettingsTab: View {
+    @State private var updateService = UpdateService()
+
+    var body: some View {
+        Form {
+            Section("Automatic Updates") {
+                Toggle("Check for updates automatically", isOn: Binding(
+                    get: { updateService.automaticallyChecksForUpdates },
+                    set: { updateService.automaticallyChecksForUpdates = $0 }
+                ))
+            }
+
+            Section("Manual Check") {
+                HStack {
+                    Button("Check for Updates Now") {
+                        updateService.checkForUpdates()
+                    }
+
+                    Spacer()
+
+                    if let date = updateService.lastUpdateCheckDate {
+                        Text("Last checked: \(date, style: .relative) ago")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section("About") {
+                LabeledContent("Version") {
+                    Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")
+                }
+                LabeledContent("Build") {
+                    Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
                 }
             }
         }
