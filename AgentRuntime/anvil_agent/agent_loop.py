@@ -36,12 +36,14 @@ class AgentLoop:
         tool_registry: ToolRegistry,
         system_prompt: str = SYSTEM_PROMPT,
         max_iterations: int = MAX_ITERATIONS,
+        working_directory: str | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tool_registry
         self._system_prompt = system_prompt
         self._max_iterations = max_iterations
         self._cancelled = False
+        self._working_directory = working_directory
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -144,6 +146,11 @@ class AgentLoop:
                     "name": tc.name,
                     "arguments": tc.arguments,
                 }
+
+                # Inject working_directory for tools that accept it
+                if self._working_directory and "working_dir" not in tc.arguments:
+                    if tc.name in ("bash", "glob", "grep"):
+                        tc.arguments["working_dir"] = self._working_directory
 
                 result = await self._tools.execute(tc)
 

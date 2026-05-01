@@ -14,8 +14,7 @@ struct SessionListView: View {
 
                 Button {
                     let session = sessionVM.createSession(name: "New Session")
-                    sessionVM.resumeSession(session)
-                    chatVM.loadSession(session)
+                    sessionVM.resumeSession(session, chatVM: chatVM)
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -27,8 +26,7 @@ struct SessionListView: View {
                 get: { sessionVM.selectedSession?.id },
                 set: { id in
                     if let session = sessionVM.sessions.first(where: { $0.id == id }) {
-                        sessionVM.resumeSession(session)
-                        chatVM.loadSession(session)
+                        sessionVM.resumeSession(session, chatVM: chatVM)
                     }
                 }
             )) {
@@ -37,8 +35,7 @@ struct SessionListView: View {
                         .tag(session.id)
                         .contextMenu {
                             Button("Resume") {
-                                sessionVM.resumeSession(session)
-                                chatVM.loadSession(session)
+                                sessionVM.resumeSession(session, chatVM: chatVM)
                             }
                             Divider()
                             Button("Delete", role: .destructive) {

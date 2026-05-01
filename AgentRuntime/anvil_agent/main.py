@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import signal
 import sys
 import tempfile
@@ -22,7 +23,10 @@ from anvil_agent.models.claude_provider import ClaudeProvider
 from anvil_agent.models.openai_provider import OpenAIProvider
 from anvil_agent.models.router import ModelRouter
 from anvil_agent.models.types import ChatMessage
+from anvil_agent.services.model_catalog import get_cloud_models, MODEL_CATALOG
+from anvil_agent.services.ollama_service import OllamaService
 from anvil_agent.session.manager import SessionManager
+from anvil_agent.settings import SettingsManager
 from anvil_agent.teams.manager import TeamManager
 from anvil_agent.tools import create_default_registry
 
@@ -43,14 +47,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default="claude-sonnet-4-20250514",
-        help="Model name to use",
+        default=None,
+        help="Model name to use (overrides saved default)",
     )
     parser.add_argument(
         "--provider",
-        default="claude",
+        default=None,
         choices=["claude", "openai", "ollama"],
-        help="Model provider",
+        help="Model provider (overrides saved default)",
     )
     parser.add_argument(
         "--openai-base-url",
@@ -72,6 +76,9 @@ class AnvilRuntime:
         self._args = args
         self._project_dir = Path(args.project_dir).resolve()
 
+        # Settings (load first so other components can use saved values)
+        self._settings = SettingsManager()
+
         # Core components
         self._router = ModelRouter()
         self._tool_registry = create_default_registry()
@@ -80,6 +87,7 @@ class AnvilRuntime:
         self._hooks_engine = HooksEngine()
         self._mcp_client = MCPClient()
         self._team_manager = TeamManager()
+        self._ollama = OllamaService()
         self._ipc = IPCServer(args.socket_path)
 
         # State
@@ -89,8 +97,8 @@ class AnvilRuntime:
 
     async def start(self) -> None:
         """Initialize and start the runtime."""
-        # Set up model provider
-        self._setup_provider()
+        # Register all providers
+        self._setup_providers()
 
         # Load memory context
         memory_context = self._memory_manager.load_context()
@@ -103,6 +111,7 @@ class AnvilRuntime:
             provider=self._router.active,
             tool_registry=self._tool_registry,
             system_prompt=system_prompt,
+            working_directory=str(self._project_dir),
         )
 
         # Start MCP servers
@@ -127,24 +136,96 @@ class AnvilRuntime:
         await self._ipc.stop()
         logger.info("Anvil runtime stopped")
 
-    def _setup_provider(self) -> None:
-        match self._args.provider:
-            case "claude":
-                provider = ClaudeProvider(model=self._args.model)
-                self._router.register("claude", provider)
-            case "openai":
+    # ── Provider Setup ────────────────────────────────────────────
+
+    def _setup_providers(self) -> None:
+        """Register all available providers: cloud models, local, and custom endpoints."""
+        api_key = self._settings.get_api_key()
+
+        # Determine the model to select as active
+        active_model = (
+            self._args.model
+            or self._settings.get("default_model")
+            or "claude-sonnet-4-20250514"
+        )
+
+        # Register cloud (Claude) models
+        if api_key:
+            for cloud_model in get_cloud_models():
+                model_id = cloud_model["id"]
+                provider = ClaudeProvider(model=model_id, api_key=api_key)
+                self._router.register(model_id, provider, provider_type="cloud")
+
+        # Register custom endpoints from settings
+        for ep in self._settings.get("endpoints") or []:
+            ep_name = ep.get("name", "")
+            ep_model = ep.get("default_model", ep_name)
+            ep_url = ep.get("base_url", "")
+            ep_key = ep.get("api_key", "")
+            if ep_url:
                 provider = OpenAIProvider(
-                    model=self._args.model,
-                    base_url=self._args.openai_base_url,
+                    model=ep_model,
+                    api_key=ep_key or None,
+                    base_url=ep_url,
                 )
-                self._router.register("openai", provider)
-            case "ollama":
-                provider = OpenAIProvider(
-                    model=self._args.model,
-                    base_url="http://localhost:11434/v1",
-                    supports_tool_use=False,
+                model_id = f"custom:{ep_name}" if ep_name else ep_model
+                self._router.register(model_id, provider, provider_type="custom")
+
+        # CLI --provider override for backwards compatibility
+        if self._args.provider == "openai":
+            model = self._args.model or "gpt-4o"
+            provider = OpenAIProvider(
+                model=model,
+                base_url=self._args.openai_base_url,
+            )
+            self._router.register(model, provider, provider_type="custom")
+            active_model = model
+        elif self._args.provider == "ollama":
+            model = self._args.model or "gemma3:4b"
+            provider = OpenAIProvider(
+                model=model,
+                base_url=f"http://localhost:{self._settings.get('ollama_port') or 11434}/v1",
+                supports_tool_use=False,
+            )
+            self._router.register(model, provider, provider_type="local")
+            active_model = model
+
+        # Select the active model
+        if self._router.has(active_model):
+            self._router.select(active_model)
+
+    def _create_provider_for_model(
+        self, model_id: str
+    ) -> tuple[str, Any] | None:
+        """Dynamically create a provider for a model_id.
+
+        Returns (provider_type, provider) or None if unrecognized.
+        """
+        api_key = self._settings.get_api_key()
+
+        # Cloud Claude models
+        for cloud_model in get_cloud_models():
+            if cloud_model["id"] == model_id:
+                if not api_key:
+                    return None
+                return ("cloud", ClaudeProvider(model=model_id, api_key=api_key))
+
+        # Ollama catalog models
+        for cat_model in MODEL_CATALOG:
+            if cat_model.id == model_id:
+                port = self._settings.get("ollama_port") or 11434
+                return (
+                    "local",
+                    OpenAIProvider(
+                        model=cat_model.ollama_tag,
+                        base_url=f"http://localhost:{port}/v1",
+                        supports_tool_use=cat_model.supports_tools,
+                    ),
                 )
-                self._router.register("ollama", provider)
+
+        return None
+
+    # ── IPC Registration ──────────────────────────────────────────
 
     def _register_ipc_methods(self) -> None:
         self._ipc.register_method("chat.send", self._handle_chat_send)
@@ -158,6 +239,8 @@ class AnvilRuntime:
         self._ipc.register_method("team.status", self._handle_team_status)
         self._ipc.register_method("settings.get", self._handle_settings_get)
         self._ipc.register_method("settings.set", self._handle_settings_set)
+
+    # ── Chat Handlers ─────────────────────────────────────────────
 
     async def _handle_chat_send(
         self, params: dict[str, Any], writer: Any
@@ -201,6 +284,8 @@ class AnvilRuntime:
             self._agent_loop.cancel()
         return {"status": "cancelled"}
 
+    # ── Session Handlers ──────────────────────────────────────────
+
     async def _handle_session_create(
         self, params: dict[str, Any], writer: Any
     ) -> dict[str, Any]:
@@ -224,20 +309,81 @@ class AnvilRuntime:
     ) -> list[dict[str, Any]]:
         return self._session_manager.list_sessions()
 
+    # ── Model Handlers ────────────────────────────────────────────
+
     async def _handle_model_list(
         self, params: dict[str, Any], writer: Any
     ) -> list[dict[str, Any]]:
-        return self._router.list_models()
+        """Return merged catalog of cloud, local, and custom models."""
+        models: list[dict[str, Any]] = []
+        registered_ids = {m["id"] for m in self._router.list_models()}
+        active_id = self._router.active_model_id
+
+        # Cloud models from catalog
+        for cloud in get_cloud_models():
+            models.append({
+                "id": cloud["id"],
+                "name": cloud["name"],
+                "provider": "cloud",
+                "status": "available" if cloud["id"] in registered_ids else "needs_key",
+                "active": cloud["id"] == active_id,
+            })
+
+        # Local models from Ollama catalog
+        for cat in MODEL_CATALOG:
+            models.append({
+                "id": cat.id,
+                "name": cat.name,
+                "provider": "local",
+                "status": "available" if cat.id in registered_ids else "downloadable",
+                "size": cat.parameters,
+                "active": cat.id == active_id,
+            })
+
+        # Custom endpoints
+        for ep in self._settings.get("endpoints") or []:
+            ep_name = ep.get("name", "")
+            model_id = f"custom:{ep_name}" if ep_name else ep.get("default_model", "")
+            models.append({
+                "id": model_id,
+                "name": ep_name or model_id,
+                "provider": "custom",
+                "status": "available" if model_id in registered_ids else "configured",
+                "active": model_id == active_id,
+            })
+
+        return models
 
     async def _handle_model_select(
         self, params: dict[str, Any], writer: Any
     ) -> dict[str, Any]:
-        name = params.get("name", "")
+        model_id = params.get("model_id", "") or params.get("name", "")
+        if not model_id:
+            return {"error": "No model_id provided"}
+
+        # If not yet registered, try to create it dynamically
+        if not self._router.has(model_id):
+            result = self._create_provider_for_model(model_id)
+            if result is None:
+                return {"error": f"Unknown model: {model_id}"}
+            provider_type, provider = result
+            self._router.register(model_id, provider, provider_type=provider_type)
+
         try:
-            self._router.select(name)
-            return {"status": "ok", "active": name}
+            self._router.select(model_id)
+            # Re-create agent loop with the new provider
+            if self._agent_loop is not None:
+                self._agent_loop = AgentLoop(
+                    provider=self._router.active,
+                    tool_registry=self._tool_registry,
+                    system_prompt=self._agent_loop._system_prompt,
+                    working_directory=str(self._project_dir),
+                )
+            return {"status": "ok", "active": model_id}
         except ValueError as e:
             return {"error": str(e)}
+
+    # ── Team Handlers ─────────────────────────────────────────────
 
     async def _handle_team_create(
         self, params: dict[str, Any], writer: Any
@@ -253,17 +399,29 @@ class AnvilRuntime:
         team_id = params.get("team_id", "")
         return await self._team_manager.get_status(team_id)
 
+    # ── Settings Handlers ─────────────────────────────────────────
+
     async def _handle_settings_get(
         self, params: dict[str, Any], writer: Any
     ) -> dict[str, Any]:
-        # Stub - settings would come from a config file
-        return {"provider": self._args.provider, "model": self._args.model}
+        key = params.get("key")
+        if key:
+            value = self._settings.get(key)
+            return {"key": key, "value": value}
+        return self._settings.get_all()
 
     async def _handle_settings_set(
         self, params: dict[str, Any], writer: Any
     ) -> dict[str, Any]:
-        # Stub - would persist settings
-        return {"status": "ok"}
+        key = params.get("key", "")
+        value = params.get("value")
+        if not key:
+            return {"error": "No key provided"}
+        try:
+            self._settings.set(key, value)
+            return {"status": "ok", "key": key, "value": value}
+        except KeyError as e:
+            return {"error": str(e)}
 
 
 async def async_main() -> None:

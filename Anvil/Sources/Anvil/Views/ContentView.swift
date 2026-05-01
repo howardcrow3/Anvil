@@ -34,6 +34,9 @@ struct ContentView: View {
     private var topBar: some View {
         HStack {
             ModelSelectorView()
+
+            connectionIndicator
+
             Spacer()
 
             if chatVM.isStreaming {
@@ -57,6 +60,18 @@ struct ContentView: View {
         .background(.bar)
     }
 
+    private var connectionIndicator: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(chatVM.connectionStatus ? .green : .red)
+                .frame(width: 8, height: 8)
+            Text(chatVM.connectionStatus ? "Connected" : "Disconnected")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.leading, 8)
+    }
+
     private var terminalPanel: some View {
         VStack(spacing: 0) {
             Divider()
@@ -77,11 +92,19 @@ struct ContentView: View {
                 .padding(.top, 8)
 
                 ScrollView {
-                    Text("Terminal output will appear here...")
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        if chatVM.terminalOutput.isEmpty {
+                            Text("Terminal output will appear here...")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(Array(chatVM.terminalOutput.enumerated()), id: \.offset) { _, line in
+                                Text(line)
+                            }
+                        }
+                    }
+                    .font(.system(.body, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
                 }
             }
             .frame(height: 200)
