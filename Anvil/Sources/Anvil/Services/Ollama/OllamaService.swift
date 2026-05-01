@@ -11,7 +11,40 @@ final class OllamaService: @unchecked Sendable {
         "\(AnvilConstants.ollamaBaseURL):\(port)"
     }
 
+    /// Resolve the Ollama binary path: bundled first, then system PATH.
+    private var ollamaPath: String? {
+        // 1. Bundled inside Anvil.app/Contents/Resources/ollama/ollama
+        if let bundled = Bundle.main.resourceURL?
+            .appendingPathComponent("ollama")
+            .appendingPathComponent("ollama") {
+            if FileManager.default.isExecutableFile(atPath: bundled.path) {
+                return bundled.path
+            }
+        }
+
+        // 2. Common install locations
+        let candidates = [
+            "/usr/local/bin/ollama",
+            "/opt/homebrew/bin/ollama",
+            "\(NSHomeDirectory())/.ollama/ollama",
+        ]
+        for path in candidates {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+
+        return nil
+    }
+
+    /// The directory containing the Ollama binary and its dylibs.
+    private var ollamaDir: String? {
+        guard let path = ollamaPath else { return nil }
+        return (path as NSString).deletingLastPathComponent
+    }
+
     func start() async throws {
+        // If an existing Ollama is already serving, piggyback on it
         if await isPortInUse(AnvilConstants.defaultOllamaPort) {
             if await healthCheck(port: AnvilConstants.defaultOllamaPort) {
                 port = AnvilConstants.defaultOllamaPort
@@ -21,20 +54,40 @@ final class OllamaService: @unchecked Sendable {
             port = AnvilConstants.fallbackOllamaPort
         }
 
+        guard let execPath = ollamaPath else {
+            throw OllamaError.failedToStart("Ollama binary not found. It should be bundled in the app or installed at /usr/local/bin/ollama.")
+        }
+
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/local/bin/ollama")
+        proc.executableURL = URL(fileURLWithPath: execPath)
         proc.arguments = ["serve"]
-        proc.environment = [
-            "OLLAMA_HOST": "127.0.0.1:\(port)"
-        ]
+
+        // Set environment so Ollama can find its dylibs (Metal, MLX)
+        var env = ProcessInfo.processInfo.environment
+        env["OLLAMA_HOST"] = "127.0.0.1:\(port)"
+        if let dir = ollamaDir {
+            let existingPath = env["DYLD_LIBRARY_PATH"] ?? ""
+            env["DYLD_LIBRARY_PATH"] = existingPath.isEmpty ? dir : "\(dir):\(existingPath)"
+        }
+        proc.environment = env
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
 
         do {
             try proc.run()
             process = proc
-            try await Task.sleep(for: .seconds(2))
-            isRunning = await healthCheck(port: port)
+            // Wait for Ollama to start accepting connections
+            for _ in 0..<10 {
+                try await Task.sleep(for: .milliseconds(500))
+                if await healthCheck(port: port) {
+                    isRunning = true
+                    return
+                }
+            }
+            isRunning = false
+            throw OllamaError.failedToStart("Ollama started but health check failed after 5 seconds.")
+        } catch let error as OllamaError {
+            throw error
         } catch {
             isRunning = false
             throw OllamaError.failedToStart(error.localizedDescription)

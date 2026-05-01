@@ -47,12 +47,17 @@ if [ -f "$PROJECT_ROOT/Anvil.entitlements" ]; then
     echo "  Bundled entitlements"
 fi
 
-# Bundle Ollama binary if available
-if command -v ollama &>/dev/null; then
+# Bundle Ollama binary + libraries
+OLLAMA_SRC="$PROJECT_ROOT/Resources/ollama"
+if [ -f "$OLLAMA_SRC/ollama" ]; then
+    cp -r "$OLLAMA_SRC"/* "$APP_BUNDLE/Contents/Resources/ollama/"
+    chmod +x "$APP_BUNDLE/Contents/Resources/ollama/ollama"
+    echo "  Bundled Ollama binary + libraries from Resources/ollama/"
+elif command -v ollama &>/dev/null; then
     cp "$(which ollama)" "$APP_BUNDLE/Contents/Resources/ollama/"
-    echo "  Bundled Ollama binary"
+    echo "  Bundled Ollama binary from system PATH"
 else
-    echo "  Ollama not found -- placeholder directory created at Resources/ollama/"
+    echo "  WARNING: Ollama not found. Run Scripts/download-ollama.sh to download it."
 fi
 
 # Copy the Python AgentRuntime

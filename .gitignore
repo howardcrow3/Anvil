@@ -62,3 +62,6 @@ htmlcov/
 
 # Ollama models (too large for git)
 models/
+
+# Bundled Ollama binary (download via Scripts/download-ollama.sh)
+Resources/ollama/

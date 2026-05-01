@@ -17,27 +17,39 @@ fi
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_BUNDLE/Contents/Info.plist" 2>/dev/null || echo "0.0.0")
 DMG_NAME="Anvil-${VERSION}.dmg"
 DMG_PATH="$BUILD_DIR/$DMG_NAME"
+RW_DMG="$BUILD_DIR/Anvil-rw.dmg"
 
 echo "=== Packaging Anvil ${VERSION} DMG ==="
 
-# Remove old DMG if it exists
-rm -f "$DMG_PATH"
+# Remove old DMGs
+rm -f "$DMG_PATH" "$RW_DMG"
 
-# Create a temporary directory for DMG contents
-DMG_TEMP=$(mktemp -d)
-trap "rm -rf '$DMG_TEMP'" EXIT
+# Calculate required size (source + 50MB overhead for filesystem metadata)
+SRC_SIZE_MB=$(( $(du -sm "$APP_BUNDLE" | cut -f1) + 50 ))
 
-cp -r "$APP_BUNDLE" "$DMG_TEMP/"
-ln -s /Applications "$DMG_TEMP/Applications"
-
-# Create DMG with UDBZ compression
-echo "Creating DMG with UDBZ compression..."
+echo "Creating read-write DMG (${SRC_SIZE_MB}MB)..."
 hdiutil create \
     -volname "Anvil" \
-    -srcfolder "$DMG_TEMP" \
-    -ov \
-    -format UDBZ \
-    "$DMG_PATH"
+    -size "${SRC_SIZE_MB}m" \
+    -fs HFS+ \
+    -layout NONE \
+    "$RW_DMG"
+
+# Mount the RW image
+MOUNT_DIR=$(hdiutil attach -readwrite -noverify -noautoopen "$RW_DMG" | grep "/Volumes/" | awk '{print $NF}')
+echo "Mounted at: $MOUNT_DIR"
+
+# Copy app bundle and create Applications symlink
+cp -r "$APP_BUNDLE" "$MOUNT_DIR/"
+ln -s /Applications "$MOUNT_DIR/Applications"
+
+# Unmount
+hdiutil detach "$MOUNT_DIR" -quiet
+
+# Convert to compressed read-only UDBZ
+echo "Compressing to UDBZ..."
+hdiutil convert "$RW_DMG" -format UDBZ -o "$DMG_PATH"
+rm -f "$RW_DMG"
 
 # Optional codesign
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
@@ -47,13 +59,14 @@ if [ -n "${CODESIGN_IDENTITY:-}" ]; then
         --entitlements "$PROJECT_ROOT/Anvil.entitlements" \
         "$APP_BUNDLE"
     echo "Re-creating signed DMG..."
-    rm -f "$DMG_PATH"
-    hdiutil create \
-        -volname "Anvil" \
-        -srcfolder "$DMG_TEMP" \
-        -ov \
-        -format UDBZ \
-        "$DMG_PATH"
+    rm -f "$DMG_PATH" "$RW_DMG"
+    hdiutil create -volname "Anvil" -size "${SRC_SIZE_MB}m" -fs HFS+ -layout NONE "$RW_DMG"
+    MOUNT_DIR=$(hdiutil attach -readwrite -noverify -noautoopen "$RW_DMG" | grep "/Volumes/" | awk '{print $NF}')
+    cp -r "$APP_BUNDLE" "$MOUNT_DIR/"
+    ln -s /Applications "$MOUNT_DIR/Applications"
+    hdiutil detach "$MOUNT_DIR" -quiet
+    hdiutil convert "$RW_DMG" -format UDBZ -o "$DMG_PATH"
+    rm -f "$RW_DMG"
     codesign --sign "$CODESIGN_IDENTITY" "$DMG_PATH"
     echo "Signing complete."
 fi
