@@ -36,7 +36,7 @@ hdiutil create \
     "$RW_DMG"
 
 # Mount the RW image
-MOUNT_DIR=$(hdiutil attach -readwrite -noverify -noautoopen "$RW_DMG" | grep "/Volumes/" | awk '{print $NF}')
+MOUNT_DIR=$(hdiutil attach -readwrite -noverify -noautoopen "$RW_DMG" | grep "/Volumes/" | sed 's|.*\(/Volumes/.*\)|\1|')
 echo "Mounted at: $MOUNT_DIR"
 
 # Copy app bundle and create Applications symlink
@@ -61,7 +61,7 @@ if [ -n "${CODESIGN_IDENTITY:-}" ]; then
     echo "Re-creating signed DMG..."
     rm -f "$DMG_PATH" "$RW_DMG"
     hdiutil create -volname "Anvil" -size "${SRC_SIZE_MB}m" -fs HFS+ -layout NONE "$RW_DMG"
-    MOUNT_DIR=$(hdiutil attach -readwrite -noverify -noautoopen "$RW_DMG" | grep "/Volumes/" | awk '{print $NF}')
+    MOUNT_DIR=$(hdiutil attach -readwrite -noverify -noautoopen "$RW_DMG" | grep "/Volumes/" | sed 's|.*\(/Volumes/.*\)|\1|')
     cp -r "$APP_BUNDLE" "$MOUNT_DIR/"
     ln -s /Applications "$MOUNT_DIR/Applications"
     hdiutil detach "$MOUNT_DIR" -quiet

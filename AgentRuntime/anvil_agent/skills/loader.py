@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+USER_SKILLS_DIR = Path.home() / ".anvil" / "skills"
 
 
 class SkillLoader:
@@ -26,6 +30,7 @@ class SkillLoader:
             "/resume": "Resume last session",
             "/settings": "Show current settings",
             "/plan": "Toggle planning mode",
+            "/skills": "Browse/search skills (/skills browse, /skills search <query>)",
         }
         for name, description in builtins.items():
             self._commands[name] = {
@@ -48,10 +53,14 @@ class SkillLoader:
                     try:
                         content = skill_file.read_text(encoding="utf-8")
                         name = skill_dir.name
+                        meta = _parse_frontmatter(content)
                         self._skills[name] = {
                             "name": name,
                             "path": str(skill_file),
                             "content": content,
+                            "source": "project",
+                            "description": meta.get("description", ""),
+                            "version": meta.get("version", ""),
                         }
                         logger.debug("Loaded skill: %s", name)
                     except Exception as e:
@@ -85,6 +94,54 @@ class SkillLoader:
             return skill["content"]
         return None
 
+    def load_user_skills(self) -> None:
+        """Load skills from ~/.anvil/skills/*/SKILL.md."""
+        if not USER_SKILLS_DIR.is_dir():
+            return
+        for skill_dir in sorted(USER_SKILLS_DIR.iterdir()):
+            skill_file = skill_dir / "SKILL.md"
+            if skill_file.is_file():
+                try:
+                    content = skill_file.read_text(encoding="utf-8")
+                    name = skill_dir.name
+                    meta = _parse_frontmatter(content)
+                    self._skills[name] = {
+                        "name": name,
+                        "path": str(skill_file),
+                        "content": content,
+                        "source": "user",
+                        "description": meta.get("description", ""),
+                        "version": meta.get("version", ""),
+                    }
+                    logger.debug("Loaded user skill: %s", name)
+                except Exception as e:
+                    logger.warning("Failed to load user skill %s: %s", skill_dir.name, e)
+
+    def get_all_skills(self) -> list[dict[str, Any]]:
+        """Return all skills with source info from all sources."""
+        results: list[dict[str, Any]] = []
+        for name, skill in self._skills.items():
+            results.append({
+                "name": name,
+                "description": skill.get("description", ""),
+                "source": skill.get("source", "project"),
+                "version": skill.get("version", ""),
+            })
+        return results
+
     def get_command(self, name: str) -> dict | None:
         """Look up a specific command by name."""
         return self._commands.get(name)
+
+
+def _parse_frontmatter(content: str) -> dict[str, str]:
+    """Parse YAML frontmatter from SKILL.md content."""
+    meta: dict[str, str] = {}
+    match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
+    if not match:
+        return meta
+    for line in match.group(1).splitlines():
+        if ":" in line:
+            key, _, value = line.partition(":")
+            meta[key.strip()] = value.strip()
+    return meta

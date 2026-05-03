@@ -21,16 +21,16 @@ final class ModelViewModel: @unchecked Sendable {
         models = [
             ModelInfo(id: "claude-opus-4-6", name: "Claude Opus 4", provider: .cloud, size: "Cloud"),
             ModelInfo(id: "claude-sonnet-4-6", name: "Claude Sonnet 4", provider: .cloud, size: "Cloud"),
-            ModelInfo(id: "claude-haiku-4-5-20251001", name: "Claude Haiku 3.5", provider: .cloud, size: "Cloud"),
-            ModelInfo(id: "gemma3:4b", name: "Gemma 3 4B", provider: .local, size: "4B"),
-            ModelInfo(id: "gemma3:12b", name: "Gemma 3 12B", provider: .local, size: "12B"),
+            ModelInfo(id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", provider: .cloud, size: "Cloud"),
+            ModelInfo(id: "gemma4:e2b", name: "Gemma 4 E2B (Bundled)", provider: .local, size: "2.3B"),
+            ModelInfo(id: "gemma4:e4b", name: "Gemma 4 E4B", provider: .local, size: "4B"),
+            ModelInfo(id: "gemma4:27b", name: "Gemma 4 27B", provider: .local, size: "27B"),
+            ModelInfo(id: "qwen3:8b", name: "Qwen 3 8B", provider: .local, size: "8B"),
             ModelInfo(id: "llama4:scout", name: "Llama 4 Scout", provider: .local, size: "109B MoE"),
             ModelInfo(id: "mistral-small:24b", name: "Mistral Small 3.2", provider: .local, size: "24B"),
-            ModelInfo(id: "phi4:14b", name: "Phi-4", provider: .local, size: "14B"),
-            ModelInfo(id: "qwen3:8b", name: "Qwen 3 8B", provider: .local, size: "8B"),
             ModelInfo(id: "qwen3:32b", name: "Qwen 3 32B", provider: .local, size: "32B"),
         ]
-        selectedModel = models.first
+        selectedModel = models.first(where: { $0.id == AnvilConstants.defaultModel }) ?? models.first
     }
 
     var groupedModels: [(String, [ModelInfo])] {

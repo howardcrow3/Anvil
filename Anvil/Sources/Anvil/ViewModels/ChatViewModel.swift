@@ -158,7 +158,8 @@ final class ChatViewModel {
                 "session_id": currentSessionId?.uuidString ?? ""
             ])
 
-            finishStreaming()
+            // Don't call finishStreaming() here — the RPC returns before
+            // streaming events arrive. Let the "done" event callback handle it.
         } catch {
             messages[messages.count - 1].content = "Error: \(error.localizedDescription)"
             isStreaming = false

@@ -21,29 +21,55 @@ class ModelCatalogEntry(BaseModel):
 
 
 MODEL_CATALOG: list[ModelCatalogEntry] = [
+    # Gemma 4 family (newest, multimodal: text + image + audio)
     ModelCatalogEntry(
-        id="gemma3:4b",
-        name="Gemma 3 4B",
+        id="gemma4:e2b",
+        name="Gemma 4 E2B",
         provider="google",
-        parameters="4B",
+        parameters="2.3B effective",
         min_ram_gb=4,
-        description="Google's efficient small model",
-        best_for="Fast responses, simple tasks",
+        description="Bundled — works immediately, multimodal",
+        best_for="Quick tasks, runs on any Mac",
         supports_tools=True,
-        context_window=8192,
-        ollama_tag="gemma3:4b",
+        context_window=131072,
+        ollama_tag="gemma4:e2b",
     ),
     ModelCatalogEntry(
-        id="gemma3:12b",
-        name="Gemma 3 12B",
+        id="gemma4:e4b",
+        name="Gemma 4 E4B",
         provider="google",
-        parameters="12B",
-        min_ram_gb=10,
-        description="Google's capable mid-size model",
-        best_for="Good all-around performance",
+        parameters="4B effective",
+        min_ram_gb=6,
+        description="Stronger multimodal model (text + image + audio)",
+        best_for="Balanced quality and speed",
         supports_tools=True,
-        context_window=8192,
-        ollama_tag="gemma3:12b",
+        context_window=131072,
+        ollama_tag="gemma4:e4b",
+    ),
+    ModelCatalogEntry(
+        id="gemma4:26b",
+        name="Gemma 4 27B",
+        provider="google",
+        parameters="27B",
+        min_ram_gb=18,
+        description="High-quality multimodal reasoning",
+        best_for="Complex tasks, M3/M4 Pro+",
+        supports_tools=True,
+        context_window=262144,
+        ollama_tag="gemma4:27b",
+    ),
+    # Other models
+    ModelCatalogEntry(
+        id="qwen3:8b",
+        name="Qwen 3 8B",
+        provider="alibaba",
+        parameters="8B",
+        min_ram_gb=6,
+        description="Alibaba's multilingual model",
+        best_for="Multilingual tasks, coding",
+        supports_tools=True,
+        context_window=32768,
+        ollama_tag="qwen3:8b",
     ),
     ModelCatalogEntry(
         id="llama4-scout",
@@ -70,30 +96,6 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         ollama_tag="mistral-small:24b",
     ),
     ModelCatalogEntry(
-        id="phi4",
-        name="Phi-4",
-        provider="microsoft",
-        parameters="14B",
-        min_ram_gb=10,
-        description="Microsoft's efficient reasoning model",
-        best_for="Efficient reasoning, math",
-        supports_tools=True,
-        context_window=16384,
-        ollama_tag="phi4:14b",
-    ),
-    ModelCatalogEntry(
-        id="qwen3:8b",
-        name="Qwen 3 8B",
-        provider="alibaba",
-        parameters="8B",
-        min_ram_gb=6,
-        description="Alibaba's multilingual model",
-        best_for="Multilingual tasks, coding",
-        supports_tools=True,
-        context_window=32768,
-        ollama_tag="qwen3:8b",
-    ),
-    ModelCatalogEntry(
         id="qwen3:32b",
         name="Qwen 3 32B",
         provider="alibaba",
@@ -106,6 +108,10 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         ollama_tag="qwen3:32b",
     ),
 ]
+
+
+# Default bundled model — available without download
+BUNDLED_MODEL_ID = "gemma4:e2b"
 
 
 def get_recommended_models(available_ram_gb: int) -> list[ModelCatalogEntry]:

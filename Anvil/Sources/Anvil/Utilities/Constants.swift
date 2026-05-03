@@ -9,5 +9,5 @@ enum AnvilConstants {
     static let defaultOllamaPort = 11434
     static let fallbackOllamaPort = 11435
     static let ollamaBaseURL = "http://localhost"
-    static let defaultModel = "claude-opus-4-6"
+    static let defaultModel = "gemma4:e2b"
 }

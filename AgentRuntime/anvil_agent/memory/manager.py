@@ -42,6 +42,15 @@ class MemoryManager:
             except Exception as e:
                 logger.warning("Failed to read global memory: %s", e)
 
+        # Load user profile
+        user_md = self._global_dir / "USER.md"
+        if user_md.exists():
+            try:
+                content = user_md.read_text(encoding="utf-8")
+                parts.append(f"# User Profile\n{content}")
+            except Exception as e:
+                logger.warning("Failed to read USER.md: %s", e)
+
         return "\n\n".join(parts)
 
     def _walk_claude_files(self) -> list[tuple[str, str]]:

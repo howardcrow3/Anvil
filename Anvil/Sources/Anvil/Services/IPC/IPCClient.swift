@@ -25,6 +25,7 @@ final class IPCClient: @unchecked Sendable {
     }
 
     func connect() async throws {
+        NSLog("[IPCClient] Connecting to %@", socketPath)
         let nwParams = NWParameters()
         let endpoint = NWEndpoint.unix(path: socketPath)
         connection = NWConnection(to: endpoint, using: nwParams)
@@ -33,6 +34,7 @@ final class IPCClient: @unchecked Sendable {
             nonisolated(unsafe) var resumed = false
             connection?.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
+                NSLog("[IPCClient] State: %@", "\(state)")
                 switch state {
                 case .ready:
                     self.isConnected = true

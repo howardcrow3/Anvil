@@ -1,9 +1,9 @@
 [
-  {"id": "gemma3:4b", "name": "Gemma 3 4B", "provider": "ollama", "parameters": "4B", "min_ram_gb": 4, "size_gb": 2.5, "description": "Fast responses, simple tasks", "recommended_for": "8GB Macs"},
-  {"id": "gemma3:12b", "name": "Gemma 3 12B", "provider": "ollama", "parameters": "12B", "min_ram_gb": 10, "size_gb": 7.3, "description": "Good all-around local model", "recommended_for": "16GB Macs"},
-  {"id": "llama4-scout", "name": "Llama 4 Scout", "provider": "ollama", "parameters": "17B active", "min_ram_gb": 12, "size_gb": 8.9, "description": "Complex reasoning tasks", "recommended_for": "16GB+ Macs"},
-  {"id": "mistral-small:24b", "name": "Mistral Small 3.2", "provider": "ollama", "parameters": "24B", "min_ram_gb": 16, "size_gb": 14.0, "description": "Strong coding model", "recommended_for": "24GB+ Macs"},
-  {"id": "phi4:14b", "name": "Phi-4", "provider": "ollama", "parameters": "14B", "min_ram_gb": 10, "size_gb": 8.5, "description": "Efficient reasoning", "recommended_for": "16GB Macs"},
+  {"id": "gemma4:e2b", "name": "Gemma 4 E2B", "provider": "ollama", "parameters": "2.3B effective", "min_ram_gb": 4, "size_gb": 7.2, "description": "Bundled — works immediately, multimodal", "recommended_for": "All Macs", "bundled": true},
+  {"id": "gemma4:e4b", "name": "Gemma 4 E4B", "provider": "ollama", "parameters": "4B effective", "min_ram_gb": 6, "size_gb": 9.6, "description": "Stronger multimodal (text + image + audio)", "recommended_for": "8GB+ Macs"},
+  {"id": "gemma4:27b", "name": "Gemma 4 27B", "provider": "ollama", "parameters": "27B", "min_ram_gb": 18, "size_gb": 18.0, "description": "High-quality multimodal reasoning", "recommended_for": "24GB+ Macs"},
   {"id": "qwen3:8b", "name": "Qwen 3 8B", "provider": "ollama", "parameters": "8B", "min_ram_gb": 6, "size_gb": 4.7, "description": "Multilingual, good at coding", "recommended_for": "8GB+ Macs"},
-  {"id": "qwen3:32b", "name": "Qwen 3 32B", "provider": "ollama", "parameters": "32B", "min_ram_gb": 20, "size_gb": 19.0, "description": "Heavy tasks, best local quality", "recommended_for": "32GB+ Macs"}
+  {"id": "llama4-scout", "name": "Llama 4 Scout", "provider": "ollama", "parameters": "17B active (109B MoE)", "min_ram_gb": 12, "size_gb": 8.9, "description": "Complex reasoning tasks", "recommended_for": "16GB+ Macs"},
+  {"id": "mistral-small:24b", "name": "Mistral Small 3.2", "provider": "ollama", "parameters": "24B", "min_ram_gb": 16, "size_gb": 14.0, "description": "Strong coding model", "recommended_for": "24GB+ Macs"},
+  {"id": "qwen3:32b", "name": "Qwen 3 32B", "provider": "ollama", "parameters": "32B", "min_ram_gb": 20, "size_gb": 19.0, "description": "Best local quality", "recommended_for": "32GB+ Macs"}
 ]

@@ -8,13 +8,14 @@ struct LocalModelInfo: Identifiable {
     let minRAMGB: Int
     let description: String
     let recommendedFor: String
+    var bundled: Bool = false
 }
 
 private let availableModels: [LocalModelInfo] = [
-    LocalModelInfo(id: "gemma3:4b", name: "Gemma 3 4B", parameters: "4B", sizeGB: 2.5, minRAMGB: 4, description: "Fast responses, simple tasks", recommendedFor: "8GB Macs"),
-    LocalModelInfo(id: "gemma3:12b", name: "Gemma 3 12B", parameters: "12B", sizeGB: 7.3, minRAMGB: 10, description: "Good all-around local model", recommendedFor: "16GB Macs"),
+    LocalModelInfo(id: "gemma4:e2b", name: "Gemma 4 E2B", parameters: "2.3B", sizeGB: 7.2, minRAMGB: 4, description: "Bundled — ready to use, multimodal", recommendedFor: "All Macs", bundled: true),
+    LocalModelInfo(id: "gemma4:e4b", name: "Gemma 4 E4B", parameters: "4B", sizeGB: 9.6, minRAMGB: 6, description: "Stronger multimodal (text + image + audio)", recommendedFor: "8GB+ Macs"),
     LocalModelInfo(id: "qwen3:8b", name: "Qwen 3 8B", parameters: "8B", sizeGB: 4.7, minRAMGB: 6, description: "Multilingual, good at coding", recommendedFor: "8GB+ Macs"),
-    LocalModelInfo(id: "phi4:14b", name: "Phi-4", parameters: "14B", sizeGB: 8.5, minRAMGB: 10, description: "Efficient reasoning", recommendedFor: "16GB Macs"),
+    LocalModelInfo(id: "gemma4:27b", name: "Gemma 4 27B", parameters: "27B", sizeGB: 18.0, minRAMGB: 18, description: "High-quality multimodal reasoning", recommendedFor: "24GB+ Macs"),
     LocalModelInfo(id: "mistral-small:24b", name: "Mistral Small 3.2", parameters: "24B", sizeGB: 14.0, minRAMGB: 16, description: "Strong coding model", recommendedFor: "24GB+ Macs"),
     LocalModelInfo(id: "qwen3:32b", name: "Qwen 3 32B", parameters: "32B", sizeGB: 19.0, minRAMGB: 20, description: "Best local quality", recommendedFor: "32GB+ Macs"),
 ]
@@ -25,14 +26,14 @@ struct ModelDownloadStep: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Choose a Local Model")
+            Text("Local Models")
                 .font(.title2)
                 .fontWeight(.bold)
                 .padding(.top, 24)
 
             HStack(spacing: 4) {
                 Image(systemName: "memorychip")
-                Text("Detected \(systemRAM) GB RAM")
+                Text("Detected \(systemRAM) GB RAM — Gemma 4 E2B is included and ready to use")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -63,6 +64,10 @@ struct ModelDownloadStep: View {
         }
         .task {
             systemRAM = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
+            // Auto-select the bundled model if nothing is selected
+            if state.selectedModelId.isEmpty {
+                state.selectedModelId = "gemma4:e2b"
+            }
         }
     }
 }
@@ -97,10 +102,21 @@ private struct ModelCard: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(String(format: "%.1f GB", model.sizeGB))
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundStyle(isSelected ? .white : .primary)
+                    if model.bundled {
+                        Text("Included")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(isSelected ? Color.white.opacity(0.25) : Color.green.opacity(0.15))
+                            .foregroundStyle(isSelected ? .white : .green)
+                            .clipShape(Capsule())
+                    } else {
+                        Text(String(format: "%.1f GB", model.sizeGB))
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(isSelected ? .white : .primary)
+                    }
                     if !fits {
                         Text("Low RAM")
                             .font(.caption2)

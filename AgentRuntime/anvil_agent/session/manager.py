@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from anvil_agent.models.types import ChatMessage
+
+if TYPE_CHECKING:
+    from anvil_agent.session.search import SessionSearchDB
+
+logger = logging.getLogger(__name__)
 
 SESSIONS_DIR = Path.home() / ".anvil" / "sessions"
 
@@ -28,9 +35,14 @@ class SessionMetadata(BaseModel):
 class SessionManager:
     """Manages conversation sessions as JSONL files."""
 
-    def __init__(self, sessions_dir: Path = SESSIONS_DIR) -> None:
+    def __init__(
+        self,
+        sessions_dir: Path = SESSIONS_DIR,
+        search_db: SessionSearchDB | None = None,
+    ) -> None:
         self._dir = sessions_dir
         self._dir.mkdir(parents=True, exist_ok=True)
+        self._search_db = search_db
 
     def create(self, name: str = "") -> str:
         """Create a new session and return its ID."""
@@ -51,10 +63,11 @@ class SessionManager:
     def append_message(self, session_id: str, message: ChatMessage) -> None:
         """Append a message to the session log."""
         path = self._dir / f"{session_id}.jsonl"
+        timestamp = datetime.now(timezone.utc).isoformat()
         entry = {
             "role": message.role,
             "content": message.content,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": timestamp,
         }
         if message.tool_calls:
             entry["tool_calls"] = [tc.model_dump() for tc in message.tool_calls]
@@ -63,6 +76,17 @@ class SessionManager:
 
         with path.open("a") as f:
             f.write(json.dumps(entry) + "\n")
+
+        # Index for full-text search
+        if self._search_db and message.content:
+            try:
+                asyncio.get_event_loop().create_task(
+                    self._search_db.index_message(
+                        session_id, message.role, message.content, timestamp
+                    )
+                )
+            except RuntimeError:
+                logger.debug("No event loop for search indexing")
 
         # Update metadata
         self._update_meta(session_id)

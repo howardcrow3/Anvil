@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "anvil-agent"
@@ -14,10 +14,19 @@ dependencies = [
     "pydantic>=2.0.0",
     "rich>=13.0.0",
     "duckduckgo-search>=7.0",
+    "python-telegram-bot>=21.0",
+    "discord.py>=2.3.0",
+    "slack-bolt>=1.18.0",
+    "aiohttp>=3.9.0",
+    "aiosqlite>=0.19.0",
 ]
 
 [project.scripts]
 anvil-agent = "anvil_agent.main:main"
+anvil-gateway = "anvil_agent.gateway.server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

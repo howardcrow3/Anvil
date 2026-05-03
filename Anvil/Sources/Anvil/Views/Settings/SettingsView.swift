@@ -31,6 +31,9 @@ struct SettingsView: View {
             EndpointSettingsView()
                 .tabItem { Label("Endpoints", systemImage: "network") }
 
+            GatewaySettingsTab()
+                .tabItem { Label("Gateway", systemImage: "antenna.radiowaves.left.and.right") }
+
             SystemSettingsTab()
                 .tabItem { Label("System", systemImage: "memorychip") }
 

@@ -1,10 +1,19 @@
 """Built-in tools for Anvil agent."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from anvil_agent.tools.registry import ToolRegistry
 from anvil_agent.tools.base import Tool
 
+if TYPE_CHECKING:
+    from anvil_agent.session.search import SessionSearchDB
 
-def create_default_registry() -> ToolRegistry:
+
+def create_default_registry(
+    search_db: SessionSearchDB | None = None,
+) -> ToolRegistry:
     """Create a registry with all built-in tools."""
     from anvil_agent.tools.read_tool import ReadTool
     from anvil_agent.tools.write_tool import WriteTool
@@ -29,6 +38,12 @@ def create_default_registry() -> ToolRegistry:
         AskUserTool,
     ]:
         registry.register(tool_cls())
+
+    # Session search (requires initialized DB)
+    if search_db is not None:
+        from anvil_agent.tools.session_search_tool import SessionSearchTool
+        registry.register(SessionSearchTool(search_db))
+
     return registry
 
 

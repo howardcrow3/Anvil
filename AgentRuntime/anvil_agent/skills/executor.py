@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from anvil_agent.models.types import ChatMessage
 from anvil_agent.skills.loader import SkillLoader
+
+if TYPE_CHECKING:
+    from anvil_agent.skills.improver import SkillImprover
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +22,12 @@ class SkillExecutor:
         loader: SkillLoader,
         session_manager: Any,
         settings_manager: Any,
+        improver: SkillImprover | None = None,
     ) -> None:
         self._loader = loader
         self._session_manager = session_manager
         self._settings = settings_manager
+        self._improver = improver
 
     async def handle_command(
         self, command: str, messages: list[ChatMessage]
@@ -48,10 +53,18 @@ class SkillExecutor:
                 return {"action": "toggle_plan_mode"}
             case "/resume":
                 return {"action": "resume_last_session"}
+            case "/skills":
+                return self._handle_skills(args)
             case _:
                 # Check custom commands
                 custom = self._loader.get_command(cmd)
                 if custom and not custom.get("builtin"):
+                    # Notify improver that a skill is being executed
+                    if self._improver:
+                        self._improver.set_active_skill(
+                            cmd.lstrip("/"),
+                            custom.get("content", ""),
+                        )
                     return {
                         "action": "inject_skill",
                         "text": custom.get("content", ""),
@@ -110,3 +123,35 @@ class SkillExecutor:
             display = "****" if key == "api_key" and value else value
             lines.append(f"  {key}: {display}")
         return {"action": "settings", "text": "\n".join(lines)}
+
+    def _handle_skills(self, args: str) -> dict[str, Any]:
+        """Handle /skills browse and /skills search <query>."""
+        parts = args.strip().split(maxsplit=1)
+        subcmd = parts[0].lower() if parts else "browse"
+
+        if subcmd == "search" and len(parts) > 1:
+            query = parts[1]
+            from anvil_agent.skills.hub import SkillsHub
+            hub = SkillsHub(self._loader)
+            results = hub.search(query)
+            if not results:
+                return {"action": "skills", "text": f"No skills found for '{query}'."}
+            lines = [f"Skills matching '{query}':", ""]
+            for s in results:
+                src = s.get("source", "?")
+                ver = s.get("version", "")
+                lines.append(f"  {s['name']:20s}  [{src}]  v{ver}  {s.get('description', '')}")
+            return {"action": "skills", "text": "\n".join(lines)}
+
+        # Default: browse
+        from anvil_agent.skills.hub import SkillsHub
+        hub = SkillsHub(self._loader)
+        all_skills = hub.browse()
+        if not all_skills:
+            return {"action": "skills", "text": "No skills found."}
+        lines = ["Available skills:", ""]
+        for s in all_skills:
+            src = s.get("source", "?")
+            ver = s.get("version", "")
+            lines.append(f"  {s['name']:20s}  [{src}]  v{ver}  {s.get('description', '')}")
+        return {"action": "skills", "text": "\n".join(lines)}

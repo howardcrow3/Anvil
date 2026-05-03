@@ -5,6 +5,7 @@ final class AgentRuntimeService: @unchecked Sendable {
     private var process: Process?
     private(set) var isRunning = false
     private(set) var socketPath: String?
+    private(set) var lastError: String?
 
     private var restartTask: Task<Void, Never>?
     private var shouldAutoRestart = true
@@ -12,7 +13,7 @@ final class AgentRuntimeService: @unchecked Sendable {
     func start(
         projectDir: String = FileManager.default.currentDirectoryPath,
         model: String = AnvilConstants.defaultModel,
-        provider: String = "claude"
+        provider: String = "ollama"
     ) async throws {
         let pythonPath = findPython()
         guard let pythonPath else {
@@ -34,6 +35,16 @@ final class AgentRuntimeService: @unchecked Sendable {
         ]
         proc.currentDirectoryURL = URL(fileURLWithPath: runtimeDir)
 
+        // Set PYTHONPATH so bundled site-packages and anvil_agent are importable
+        var env = ProcessInfo.processInfo.environment
+        let sitePackagesPath = runtimeDir + "/site-packages"
+        if let existing = env["PYTHONPATH"] {
+            env["PYTHONPATH"] = runtimeDir + ":" + sitePackagesPath + ":" + existing
+        } else {
+            env["PYTHONPATH"] = runtimeDir + ":" + sitePackagesPath
+        }
+        proc.environment = env
+
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         proc.standardOutput = stdoutPipe
@@ -43,11 +54,27 @@ final class AgentRuntimeService: @unchecked Sendable {
             guard let self else { return }
             self.isRunning = false
             self.socketPath = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if proc.terminationStatus != 0 {
+                self.lastError = "Python runtime exited with code \(proc.terminationStatus)"
+                NSLog("[AnvilRuntime] Process exited with status %d (reason: %d)", proc.terminationStatus, proc.terminationReason.rawValue)
+            }
             if self.shouldAutoRestart && proc.terminationReason == .uncaughtSignal {
                 self.scheduleRestart(projectDir: projectDir, model: model, provider: provider)
             }
         }
 
+        // Capture stderr for diagnostics
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let output = String(data: data, encoding: .utf8) else { return }
+            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                NSLog("[AnvilRuntime stderr] %@", trimmed)
+            }
+        }
+
+        lastError = nil
         try proc.run()
         process = proc
         isRunning = true
@@ -131,8 +158,39 @@ final class AgentRuntimeService: @unchecked Sendable {
             return bundledPath
         }
 
-        let systemPaths = ["/usr/bin/python3", "/usr/local/bin/python3", "/opt/homebrew/bin/python3"]
-        return systemPaths.first { FileManager.default.fileExists(atPath: $0) }
+        // Prefer framework/Homebrew Python (3.10+) over system Python (may be 3.9)
+        // The codebase uses X | None syntax which requires Python 3.10+
+        let candidates = [
+            "/Library/Frameworks/Python.framework/Versions/Current/bin/python3",
+            "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3",
+            "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3",
+            "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3",
+            "/opt/homebrew/bin/python3",
+            "/usr/local/bin/python3",
+            "/usr/bin/python3",
+        ]
+        for path in candidates {
+            guard FileManager.default.fileExists(atPath: path) else { continue }
+            // Verify version is 3.10+
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: path)
+            proc.arguments = ["-c", "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)"]
+            let devNull = Pipe()
+            proc.standardOutput = devNull
+            proc.standardError = devNull
+            do {
+                try proc.run()
+                proc.waitUntilExit()
+                if proc.terminationStatus == 0 {
+                    return path
+                }
+            } catch {
+                continue
+            }
+        }
+
+        // Fallback: return first available even if version is unknown
+        return candidates.first { FileManager.default.fileExists(atPath: $0) }
     }
 
     private func findRuntimeDir() -> String? {

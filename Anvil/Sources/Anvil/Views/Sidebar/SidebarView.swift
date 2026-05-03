@@ -4,6 +4,7 @@ enum SidebarTab: String, CaseIterable {
     case sessions = "Sessions"
     case files = "Files"
     case tasks = "Tasks"
+    case skills = "Skills"
     case git = "Git"
 
     var icon: String {
@@ -11,6 +12,7 @@ enum SidebarTab: String, CaseIterable {
         case .sessions: "bubble.left.and.bubble.right"
         case .files: "folder"
         case .tasks: "checklist"
+        case .skills: "sparkles"
         case .git: "arrow.triangle.branch"
         }
     }
@@ -39,6 +41,8 @@ struct SidebarView: View {
                 FileExplorerView()
             case .tasks:
                 TaskBoardView()
+            case .skills:
+                SkillsBrowserView()
             case .git:
                 GitStatusView()
             }

@@ -9,6 +9,7 @@ struct AnvilApp: App {
     @State private var modelVM: ModelViewModel?
     @State private var teamVM: TeamViewModel?
     @State private var settingsVM: SettingsViewModel?
+    @State private var gatewayVM: GatewayViewModel?
     @State private var updateService = UpdateService()
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
@@ -18,13 +19,14 @@ struct AnvilApp: App {
                 OnboardingView {
                     hasCompletedOnboarding = true
                 }
-            } else if let chatVM, let sessionVM, let modelVM, let teamVM, let settingsVM {
+            } else if let chatVM, let sessionVM, let modelVM, let teamVM, let settingsVM, let gatewayVM {
                 ContentView()
                     .environment(chatVM)
                     .environment(sessionVM)
                     .environment(modelVM)
                     .environment(teamVM)
                     .environment(settingsVM)
+                    .environment(gatewayVM)
                     .frame(minWidth: 900, minHeight: 600)
                     .task {
                         await startRuntime()
@@ -72,9 +74,10 @@ struct AnvilApp: App {
         }
 
         Settings {
-            if let settingsVM {
+            if let settingsVM, let gatewayVM {
                 SettingsView()
                     .environment(settingsVM)
+                    .environment(gatewayVM)
             }
         }
     }
@@ -85,22 +88,35 @@ struct AnvilApp: App {
         modelVM = ModelViewModel(ipcClient: ipcClient)
         teamVM = TeamViewModel(ipcClient: ipcClient)
         settingsVM = SettingsViewModel(ipcClient: ipcClient)
+        gatewayVM = GatewayViewModel(ipcClient: ipcClient)
     }
 
     private func startRuntime() async {
+        // Ensure Ollama is ready before starting the Python agent runtime
+        // (start() is idempotent — it piggybacks if already running)
+        try? await appDelegate.ollamaService.start()
+
         let runtime = appDelegate.runtimeService
         do {
             try await runtime.start()
             if let socketPath = runtime.socketPath {
+                NSLog("[Anvil] Got socket path: %@", socketPath)
                 ipcClient.updateSocketPath(socketPath)
                 ipcClient.enableReconnect()
-                try? await ipcClient.connect()
+                do {
+                    try await ipcClient.connect()
+                    NSLog("[Anvil] IPC connected successfully")
+                } catch {
+                    NSLog("[Anvil] IPC connection failed: %@", error.localizedDescription)
+                }
                 await modelVM?.refreshModels()
                 sessionVM?.loadSessions()
                 settingsVM?.loadSettings()
+            } else {
+                NSLog("[Anvil] Runtime started but no socket path received")
             }
         } catch {
-            print("Failed to start agent runtime: \(error.localizedDescription)")
+            NSLog("[Anvil] Failed to start agent runtime: %@", error.localizedDescription)
         }
     }
 }

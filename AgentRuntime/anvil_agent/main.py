@@ -16,23 +16,33 @@ from typing import Any
 from rich.logging import RichHandler
 
 from anvil_agent.agent_loop import AgentLoop, SYSTEM_PROMPT
+from anvil_agent.gateway.config import GatewayConfig, load_gateway_config, save_gateway_config
+from anvil_agent.gateway.server import GatewayServer
 from anvil_agent.git.detector import GitDetector
 from anvil_agent.git.service import GitService
 from anvil_agent.hooks.engine import HooksEngine, HookEvent
-from anvil_agent.planning.manager import PlanManager
 from anvil_agent.ipc.server import IPCServer
 from anvil_agent.mcp.client import MCPClient
 from anvil_agent.memory.manager import MemoryManager
+from anvil_agent.memory.nudger import MemoryNudger
+from anvil_agent.memory.user_model import UserModelManager
 from anvil_agent.models.claude_provider import ClaudeProvider
 from anvil_agent.models.openai_provider import OpenAIProvider
 from anvil_agent.models.router import ModelRouter
 from anvil_agent.models.types import ChatMessage
-from anvil_agent.services.model_catalog import get_cloud_models, MODEL_CATALOG
+from anvil_agent.permissions import PermissionManager, PermissionMode
+from anvil_agent.planning.manager import PlanManager
+from anvil_agent.services.model_catalog import (
+    get_cloud_models, get_model_by_id, MODEL_CATALOG, BUNDLED_MODEL_ID,
+)
 from anvil_agent.services.ollama_service import OllamaService
 from anvil_agent.session.manager import SessionManager
-from anvil_agent.permissions import PermissionManager, PermissionMode
+from anvil_agent.session.search import SessionSearchDB
 from anvil_agent.settings import SettingsManager
+from anvil_agent.skills.creator import SkillCreator
 from anvil_agent.skills.executor import SkillExecutor
+from anvil_agent.skills.hub import SkillsHub
+from anvil_agent.skills.improver import SkillImprover
 from anvil_agent.skills.loader import SkillLoader
 from anvil_agent.teams.manager import TeamManager
 from anvil_agent.teams.orchestrator import TeamOrchestrator
@@ -89,17 +99,27 @@ class AnvilRuntime:
         # Settings (load first so other components can use saved values)
         self._settings = SettingsManager()
 
+        # Session search DB (initialized async in start())
+        self._search_db = SessionSearchDB()
+
         # Core components
         self._router = ModelRouter()
-        self._tool_registry = create_default_registry()
-        self._session_manager = SessionManager()
+        self._tool_registry = create_default_registry(search_db=self._search_db)
+        self._session_manager = SessionManager(search_db=self._search_db)
         self._memory_manager = MemoryManager(self._project_dir)
+        self._user_model = UserModelManager()
+        self._nudger = MemoryNudger()
         self._hooks_engine = HooksEngine()
         self._plan_manager = PlanManager()
         self._skill_loader = SkillLoader(self._project_dir)
         self._skill_loader.load_project_skills()
+        self._skill_loader.load_user_skills()
+        self._skill_creator = SkillCreator()
+        self._skill_improver = SkillImprover()
+        self._skills_hub = SkillsHub(self._skill_loader)
         self._skill_executor = SkillExecutor(
-            self._skill_loader, self._session_manager, self._settings
+            self._skill_loader, self._session_manager, self._settings,
+            improver=self._skill_improver,
         )
         self._mcp_client = MCPClient()
         self._team_manager = TeamManager()
@@ -122,6 +142,22 @@ class AnvilRuntime:
             deny_list=self._settings.get("tool_deny_list"),
         )
 
+        # Gateway
+        self._gateway: GatewayServer | None = None
+        self._gateway_config: GatewayConfig | None = None
+        try:
+            gw_config = load_gateway_config()
+            # Only initialize if at least one platform is configured
+            has_platform = any(
+                getattr(gw_config, p) is not None and getattr(gw_config, p).enabled
+                for p in ("telegram", "discord", "slack", "webhook")
+                if getattr(gw_config, p) is not None
+            )
+            if has_platform:
+                self._gateway_config = gw_config
+        except Exception:
+            pass
+
         # State
         self._current_session: str | None = None
         self._agent_loop: AgentLoop | None = None
@@ -130,6 +166,9 @@ class AnvilRuntime:
 
     async def start(self) -> None:
         """Initialize and start the runtime."""
+        # Initialize session search DB
+        await self._search_db.initialize()
+
         # Register all providers
         self._setup_providers()
 
@@ -139,14 +178,27 @@ class AnvilRuntime:
         if memory_context:
             system_prompt += f"\n\n{memory_context}"
 
-        # Create agent loop
-        self._agent_loop = AgentLoop(
-            provider=self._router.active,
-            tool_registry=self._tool_registry,
-            system_prompt=system_prompt,
-            working_directory=str(self._project_dir),
-            permission_manager=self._permission_manager,
-        )
+        # Inject user profile
+        user_prompt = self._user_model.get_system_prompt_addition()
+        if user_prompt:
+            system_prompt += f"\n\n{user_prompt}"
+
+        # Store system prompt for deferred agent loop creation
+        self._system_prompt = system_prompt
+
+        # Create agent loop if a provider is available
+        if self._router.active_model_id is not None:
+            self._agent_loop = AgentLoop(
+                provider=self._router.active,
+                tool_registry=self._tool_registry,
+                system_prompt=system_prompt,
+                working_directory=str(self._project_dir),
+                permission_manager=self._permission_manager,
+                nudger=self._nudger,
+                skill_creator=self._skill_creator,
+            )
+        else:
+            logger.warning("No model provider configured — agent loop deferred until a model is selected")
 
         # Detect git repository
         if await GitDetector.is_git_repo(self._project_dir):
@@ -170,6 +222,29 @@ class AnvilRuntime:
         # Start IPC server
         await self._ipc.start()
 
+        # Signal socket path immediately so Swift app can connect
+        # while we continue with non-essential setup (gateway, hooks)
+        print(f"SOCKET:{self._args.socket_path}", flush=True)
+
+        # Start gateway if configured
+        if self._gateway_config:
+            def _gateway_loop_factory() -> AgentLoop:
+                return AgentLoop(
+                    provider=self._router.active,
+                    tool_registry=self._tool_registry,
+                    system_prompt=SYSTEM_PROMPT,
+                    working_directory=str(self._project_dir),
+                )
+
+            self._gateway = GatewayServer(
+                config=self._gateway_config,
+                agent_loop_factory=_gateway_loop_factory,
+                session_manager=self._session_manager,
+                tool_registry=self._tool_registry,
+            )
+            await self._gateway.start()
+            logger.info("Gateway started with configured adapters")
+
         # Run hooks
         await self._hooks_engine.run(HookEvent.SESSION_START, {})
 
@@ -177,9 +252,16 @@ class AnvilRuntime:
 
     async def stop(self) -> None:
         """Gracefully shut down the runtime."""
+        # Update user model from conversation
+        if self._messages:
+            await self._user_model.update_from_conversation(self._messages)
+
         await self._hooks_engine.run(HookEvent.SESSION_END, {})
+        if self._gateway:
+            await self._gateway.stop()
         await self._mcp_client.stop_all()
         await self._team_manager.stop_all()
+        await self._search_db.close()
         await self._ipc.stop()
         logger.info("Anvil runtime stopped")
 
@@ -228,18 +310,35 @@ class AnvilRuntime:
             self._router.register(model, provider, provider_type="custom")
             active_model = model
         elif self._args.provider == "ollama":
-            model = self._args.model or "gemma3:4b"
+            model = self._args.model or "gemma4:e2b"
+            catalog_entry = get_model_by_id(model)
+            ollama_tag = catalog_entry.ollama_tag if catalog_entry else model
+            tool_support = catalog_entry.supports_tools if catalog_entry else False
             provider = OpenAIProvider(
-                model=model,
+                model=ollama_tag,
                 base_url=f"http://localhost:{self._settings.get('ollama_port') or 11434}/v1",
-                supports_tool_use=False,
+                supports_tool_use=tool_support,
             )
             self._router.register(model, provider, provider_type="local")
             active_model = model
 
-        # Select the active model
+        # Always register the bundled local model as a fallback
+        bundled_entry = get_model_by_id(BUNDLED_MODEL_ID)
+        if bundled_entry and not self._router.has(BUNDLED_MODEL_ID):
+            port = self._settings.get("ollama_port") or 11434
+            bundled_provider = OpenAIProvider(
+                model=bundled_entry.ollama_tag,
+                base_url=f"http://localhost:{port}/v1",
+                supports_tool_use=bundled_entry.supports_tools,
+            )
+            self._router.register(BUNDLED_MODEL_ID, bundled_provider, provider_type="local")
+
+        # Select the active model — fall back to bundled if preferred isn't available
         if self._router.has(active_model):
             self._router.select(active_model)
+        elif not api_key and self._router.has(BUNDLED_MODEL_ID):
+            self._router.select(BUNDLED_MODEL_ID)
+            logger.info("No API key — using bundled model %s", BUNDLED_MODEL_ID)
 
     def _create_provider_for_model(
         self, model_id: str
@@ -306,11 +405,20 @@ class AnvilRuntime:
         self._ipc.register_method("planning.stop", self._handle_planning_stop)
         self._ipc.register_method("planning.save", self._handle_planning_save)
         self._ipc.register_method("planning.list", self._handle_planning_list)
+        self._ipc.register_method("session.search", self._handle_session_search)
         self._ipc.register_method("skills.list", self._handle_skills_list)
+        self._ipc.register_method("skills.create", self._handle_skills_create)
+        self._ipc.register_method("skills.browse", self._handle_skills_browse)
+        self._ipc.register_method("skills.search", self._handle_skills_search)
         self._ipc.register_method("permission.respond", self._handle_permission_respond)
         self._ipc.register_method("git.status", self._handle_git_status)
         self._ipc.register_method("git.log", self._handle_git_log)
         self._ipc.register_method("git.diff", self._handle_git_diff)
+        self._ipc.register_method("gateway.status", self._handle_gateway_status)
+        self._ipc.register_method("gateway.start", self._handle_gateway_start)
+        self._ipc.register_method("gateway.stop", self._handle_gateway_stop)
+        self._ipc.register_method("gateway.config.get", self._handle_gateway_config_get)
+        self._ipc.register_method("gateway.config.set", self._handle_gateway_config_set)
 
     # ── Chat Handlers ─────────────────────────────────────────────
 
@@ -373,8 +481,28 @@ class AnvilRuntime:
 
         # Stream agent response
         full_response = ""
-        assert self._agent_loop is not None
+        if self._agent_loop is None:
+            error_text = (
+                "No model is configured. Please set your Anthropic API key in "
+                "Settings, or select a local model via the model selector."
+            )
+            await self._ipc.send_notification(
+                writer, "chat.event",
+                {"type": "text_delta", "text": error_text},
+            )
+            await self._ipc.send_notification(
+                writer, "chat.event",
+                {"type": "done", "stop_reason": "no_provider"},
+            )
+            return {"status": "ok"}
         async for event in self._agent_loop.run(self._messages):
+            if event.get("type") == "skill_creation_check":
+                # Log skill creation opportunity (actual creation via skills.create IPC)
+                logger.info(
+                    "Skill creation candidate: %d tool calls",
+                    event.get("tool_call_count", 0),
+                )
+                continue
             await self._ipc.send_notification(writer, "chat.event", event)
             if event.get("type") == "text_delta":
                 full_response += event.get("text", "")
@@ -400,10 +528,16 @@ class AnvilRuntime:
     async def _handle_session_create(
         self, params: dict[str, Any], writer: Any
     ) -> dict[str, Any]:
+        # Update user model from previous conversation
+        if self._messages:
+            await self._user_model.update_from_conversation(self._messages)
+
         name = params.get("name", "")
         session_id = self._session_manager.create(name)
         self._current_session = session_id
         self._messages = []
+        self._nudger.reset()
+        self._skill_improver.clear()
         return {"session_id": session_id}
 
     async def _handle_session_resume(
@@ -482,16 +616,19 @@ class AnvilRuntime:
 
         try:
             self._router.select(model_id)
-            # Re-create agent loop with the new provider
-            if self._agent_loop is not None:
-                self._agent_loop = AgentLoop(
-                    provider=self._router.active,
-                    tool_registry=self._tool_registry,
-                    system_prompt=self._agent_loop._system_prompt,
-                    working_directory=str(self._project_dir),
-                    planning_mode=self._agent_loop._planning_mode,
-                    permission_manager=self._permission_manager,
-                )
+            # Create or re-create agent loop with the new provider
+            planning = self._agent_loop._planning_mode if self._agent_loop else False
+            prompt = self._agent_loop._system_prompt if self._agent_loop else self._system_prompt
+            self._agent_loop = AgentLoop(
+                provider=self._router.active,
+                tool_registry=self._tool_registry,
+                system_prompt=prompt,
+                working_directory=str(self._project_dir),
+                planning_mode=planning,
+                permission_manager=self._permission_manager,
+                nudger=self._nudger,
+                skill_creator=self._skill_creator,
+            )
             return {"status": "ok", "active": model_id}
         except ValueError as e:
             return {"error": str(e)}
@@ -675,6 +812,32 @@ class AnvilRuntime:
             return {"error": "No key provided"}
         try:
             self._settings.set(key, value)
+
+            # When API key is set, auto-register cloud models and create agent loop
+            if key == "api_key" and value:
+                for cloud_model in get_cloud_models():
+                    model_id = cloud_model["id"]
+                    if not self._router.has(model_id):
+                        provider = ClaudeProvider(model=model_id, api_key=value)
+                        self._router.register(model_id, provider, provider_type="cloud")
+                # Select default model and create agent loop if needed
+                default_model = (
+                    self._settings.get("default_model") or "claude-sonnet-4-20250514"
+                )
+                if self._router.has(default_model):
+                    self._router.select(default_model)
+                if self._agent_loop is None and self._router.active_model_id is not None:
+                    self._agent_loop = AgentLoop(
+                        provider=self._router.active,
+                        tool_registry=self._tool_registry,
+                        system_prompt=self._system_prompt,
+                        working_directory=str(self._project_dir),
+                        permission_manager=self._permission_manager,
+                        nudger=self._nudger,
+                        skill_creator=self._skill_creator,
+                    )
+                    logger.info("Agent loop created after API key was set")
+
             return {"status": "ok", "key": key, "value": value}
         except KeyError as e:
             return {"error": str(e)}
@@ -724,12 +887,111 @@ class AnvilRuntime:
         self._permission_manager.respond(request_id, approved)
         return {"status": "ok"}
 
+    # ── Session Search Handler ────────────────────────────────────
+
+    async def _handle_session_search(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        query = params.get("query", "")
+        limit = params.get("limit", 10)
+        if not query:
+            return {"error": "No query provided"}
+        results = await self._search_db.search(query, limit=limit)
+        return {"results": results}
+
     # ── Skills Handlers ──────────────────────────────────────────
 
     async def _handle_skills_list(
         self, params: dict[str, Any], writer: Any
     ) -> list[dict[str, Any]]:
         return self._skill_loader.get_all_commands()
+
+    async def _handle_skills_create(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        name = params.get("name", "")
+        summary = params.get("summary", "")
+        tool_calls = params.get("tool_calls", [])
+        if not name:
+            return {"error": "No skill name provided"}
+        content = await self._skill_creator.create_skill(summary, tool_calls)
+        if content:
+            self._skill_creator.save_skill(name, content)
+            self._skill_loader.load_user_skills()
+            return {"status": "ok", "name": name}
+        return {"error": "Failed to create skill"}
+
+    async def _handle_skills_browse(
+        self, params: dict[str, Any], writer: Any
+    ) -> list[dict[str, Any]]:
+        return self._skills_hub.browse()
+
+    async def _handle_skills_search(
+        self, params: dict[str, Any], writer: Any
+    ) -> list[dict[str, Any]]:
+        query = params.get("query", "")
+        if not query:
+            return []
+        return self._skills_hub.search(query)
+
+    # ── Gateway Handlers ────────────────────────────────────────
+
+    async def _handle_gateway_status(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        if not self._gateway:
+            return {"running": False, "adapters": {}}
+        return self._gateway.get_status()
+
+    async def _handle_gateway_start(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        config = load_gateway_config()
+        if self._gateway:
+            await self._gateway.stop()
+
+        def _factory() -> AgentLoop:
+            return AgentLoop(
+                provider=self._router.active,
+                tool_registry=self._tool_registry,
+                system_prompt=SYSTEM_PROMPT,
+                working_directory=str(self._project_dir),
+            )
+
+        self._gateway = GatewayServer(
+            config=config,
+            agent_loop_factory=_factory,
+            session_manager=self._session_manager,
+            tool_registry=self._tool_registry,
+        )
+        self._gateway_config = config
+        await self._gateway.start()
+        return self._gateway.get_status()
+
+    async def _handle_gateway_stop(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        if not self._gateway:
+            return {"status": "not_running"}
+        await self._gateway.stop()
+        self._gateway = None
+        return {"status": "stopped"}
+
+    async def _handle_gateway_config_get(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        config = load_gateway_config()
+        return config.model_dump()
+
+    async def _handle_gateway_config_set(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        try:
+            config = GatewayConfig(**params)
+            save_gateway_config(config)
+            return {"status": "ok"}
+        except Exception as e:
+            return {"error": str(e)}
 
     # ── Git Handlers ─────────────────────────────────────────────
 
@@ -779,9 +1041,6 @@ async def async_main() -> None:
         loop.add_signal_handler(sig, signal_handler)
 
     await runtime.start()
-
-    # Print socket path for the Swift app to connect
-    print(f"SOCKET:{args.socket_path}", flush=True)
 
     await shutdown_event.wait()
     await runtime.stop()

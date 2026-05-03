@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, AsyncIterator
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from anvil_agent.models.router import ModelProvider
 from anvil_agent.models.types import ChatChunk, ChatMessage, ToolCallDelta, ToolCallRequest, ToolResult
 from anvil_agent.permissions import PermissionManager
 from anvil_agent.tools.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from anvil_agent.memory.nudger import MemoryNudger
+    from anvil_agent.skills.creator import SkillCreator
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +52,8 @@ class AgentLoop:
         working_directory: str | None = None,
         planning_mode: bool = False,
         permission_manager: PermissionManager | None = None,
+        nudger: MemoryNudger | None = None,
+        skill_creator: SkillCreator | None = None,
     ) -> None:
         self._provider = provider
         self._tools = tool_registry
@@ -57,6 +63,8 @@ class AgentLoop:
         self._working_directory = working_directory
         self._planning_mode = planning_mode
         self._permission_manager = permission_manager
+        self._nudger = nudger
+        self._skill_creator = skill_creator
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -75,6 +83,8 @@ class AgentLoop:
           {"type": "error", "message": "..."}
         """
         self._cancelled = False
+        tool_call_count = 0
+        last_success = True
 
         active_prompt = PLANNING_SYSTEM_PROMPT if self._planning_mode else self._system_prompt
         full_messages = [
@@ -144,6 +154,11 @@ class AgentLoop:
             if not tool_calls:
                 # Add assistant message to history
                 full_messages.append(ChatMessage(role="assistant", content=full_text))
+                # Skill creation check at end of run
+                if self._skill_creator and self._skill_creator.should_create_skill(
+                    tool_call_count, last_success
+                ):
+                    yield {"type": "skill_creation_check", "tool_call_count": tool_call_count}
                 yield {"type": "done", "stop_reason": finish_reason or "end_turn"}
                 return
 
@@ -231,6 +246,9 @@ class AgentLoop:
                         tc.arguments["working_dir"] = self._working_directory
 
                 result = await self._tools.execute(tc)
+                tool_call_count += 1
+                if result.is_error:
+                    last_success = False
 
                 yield {
                     "type": "tool_result",
@@ -246,5 +264,17 @@ class AgentLoop:
                         tool_call_id=result.id,
                     )
                 )
+
+            # Memory nudge check at iteration boundary
+            if self._nudger:
+                nudge = self._nudger.check_nudge(iteration + 1)
+                if nudge:
+                    full_messages.append(ChatMessage(role="system", content=nudge))
+
+        # Skill creation check at end of run
+        if self._skill_creator and self._skill_creator.should_create_skill(
+            tool_call_count, last_success
+        ):
+            yield {"type": "skill_creation_check", "tool_call_count": tool_call_count}
 
         yield {"type": "done", "stop_reason": "max_iterations"}

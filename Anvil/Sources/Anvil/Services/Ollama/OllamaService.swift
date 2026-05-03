@@ -44,6 +44,9 @@ final class OllamaService: @unchecked Sendable {
     }
 
     func start() async throws {
+        // Import any bundled models before starting
+        importBundledModels()
+
         // If an existing Ollama is already serving, piggyback on it
         if await isPortInUse(AnvilConstants.defaultOllamaPort) {
             if await healthCheck(port: AnvilConstants.defaultOllamaPort) {
@@ -91,6 +94,59 @@ final class OllamaService: @unchecked Sendable {
         } catch {
             isRunning = false
             throw OllamaError.failedToStart(error.localizedDescription)
+        }
+    }
+
+    /// Copy bundled model blobs and manifests from the app bundle into ~/.ollama/models/
+    /// so they're immediately available without downloading.
+    private func importBundledModels() {
+        guard let bundledModels = Bundle.main.resourceURL?
+            .appendingPathComponent("models") else { return }
+
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: bundledModels.path) else { return }
+
+        let ollamaModels = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent(".ollama")
+            .appendingPathComponent("models")
+
+        // Copy manifests
+        let srcManifests = bundledModels.appendingPathComponent("manifests")
+        let dstManifests = ollamaModels.appendingPathComponent("manifests")
+        if fm.fileExists(atPath: srcManifests.path) {
+            copyTreeIfMissing(from: srcManifests, to: dstManifests)
+        }
+
+        // Copy blobs
+        let srcBlobs = bundledModels.appendingPathComponent("blobs")
+        let dstBlobs = ollamaModels.appendingPathComponent("blobs")
+        if fm.fileExists(atPath: srcBlobs.path) {
+            try? fm.createDirectory(at: dstBlobs, withIntermediateDirectories: true)
+            if let items = try? fm.contentsOfDirectory(at: srcBlobs, includingPropertiesForKeys: nil) {
+                for item in items {
+                    let dest = dstBlobs.appendingPathComponent(item.lastPathComponent)
+                    if !fm.fileExists(atPath: dest.path) {
+                        try? fm.copyItem(at: item, to: dest)
+                        NSLog("[Anvil] Imported bundled model blob: %@", item.lastPathComponent)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Recursively copy directory tree, only copying files that don't already exist at destination.
+    private func copyTreeIfMissing(from src: URL, to dst: URL) {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: dst, withIntermediateDirectories: true)
+        guard let items = try? fm.contentsOfDirectory(at: src, includingPropertiesForKeys: [.isDirectoryKey]) else { return }
+        for item in items {
+            let destItem = dst.appendingPathComponent(item.lastPathComponent)
+            let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if isDir {
+                copyTreeIfMissing(from: item, to: destItem)
+            } else if !fm.fileExists(atPath: destItem.path) {
+                try? fm.copyItem(at: item, to: destItem)
+            }
         }
     }
 
