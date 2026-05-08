@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 USER_SKILLS_DIR = Path.home() / ".anvil" / "skills"
+SKILLS_STATE_FILE = Path.home() / ".anvil" / "skills_state.json"
 
 
 class SkillLoader:
@@ -19,6 +21,8 @@ class SkillLoader:
         self._project_dir = project_dir
         self._skills: dict[str, dict] = {}
         self._commands: dict[str, dict] = {}
+        self._disabled: set[str] = set()
+        self._load_state()
         self._load_builtins()
 
     def _load_builtins(self) -> None:
@@ -86,6 +90,71 @@ class SkillLoader:
     def get_all_commands(self) -> list[dict]:
         """Return all commands (builtins + custom)."""
         return list(self._commands.values())
+
+    def get_all_items(self) -> list[dict[str, Any]]:
+        """Return all skills and commands merged, with id and enabled status."""
+        items: list[dict[str, Any]] = []
+        for name, skill in self._skills.items():
+            items.append({
+                "id": name,
+                "name": skill.get("name", name),
+                "description": skill.get("description", ""),
+                "source": skill.get("source", "user"),
+                "version": skill.get("version", "1.0"),
+                "enabled": name not in self._disabled,
+                "type": "skill",
+            })
+        for name, cmd in self._commands.items():
+            items.append({
+                "id": name,
+                "name": cmd.get("name", name),
+                "description": cmd.get("description", ""),
+                "source": "builtin" if cmd.get("builtin") else "project",
+                "version": "",
+                "enabled": name not in self._disabled,
+                "type": "command",
+            })
+        return items
+
+    def set_enabled(self, skill_id: str, enabled: bool) -> None:
+        """Enable or disable a skill/command."""
+        if enabled:
+            self._disabled.discard(skill_id)
+        else:
+            self._disabled.add(skill_id)
+        self._save_state()
+
+    def is_enabled(self, skill_id: str) -> bool:
+        return skill_id not in self._disabled
+
+    def delete_skill(self, skill_id: str) -> bool:
+        """Delete a user-created skill. Returns True if deleted."""
+        skill = self._skills.get(skill_id)
+        if not skill or skill.get("source") != "user":
+            return False
+        skill_dir = USER_SKILLS_DIR / skill_id
+        if skill_dir.is_dir():
+            import shutil
+            shutil.rmtree(skill_dir)
+        self._skills.pop(skill_id, None)
+        self._disabled.discard(skill_id)
+        self._save_state()
+        return True
+
+    def _load_state(self) -> None:
+        """Load disabled skills list from disk."""
+        if SKILLS_STATE_FILE.is_file():
+            try:
+                data = json.loads(SKILLS_STATE_FILE.read_text())
+                self._disabled = set(data.get("disabled", []))
+            except Exception:
+                pass
+
+    def _save_state(self) -> None:
+        """Persist disabled skills list to disk."""
+        SKILLS_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        data = {"disabled": sorted(self._disabled)}
+        SKILLS_STATE_FILE.write_text(json.dumps(data, indent=2))
 
     def get_skill_context(self, name: str) -> str | None:
         """Return the SKILL.md content for injection into the system prompt."""

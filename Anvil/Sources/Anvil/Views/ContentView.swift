@@ -3,8 +3,11 @@ import SwiftUI
 struct ContentView: View {
     @Environment(ChatViewModel.self) private var chatVM
     @Environment(ModelViewModel.self) private var modelVM
+    @Environment(ProjectViewModel.self) private var projectVM
+    @Environment(SessionViewModel.self) private var sessionVM
     @State private var showTerminal = false
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var selectedTab: SidebarTab = .sessions
 
     var body: some View {
         @Bindable var vm = chatVM
@@ -17,10 +20,10 @@ struct ContentView: View {
             }
 
             NavigationSplitView(columnVisibility: $columnVisibility) {
-                SidebarView()
+                SidebarView(selectedTab: $selectedTab)
                     .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
             } detail: {
-                ChatView()
+                detailContent
             }
 
             if showTerminal {
@@ -110,6 +113,105 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.leading, 8)
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        if selectedTab == .projects, let project = projectVM.selectedProject {
+            if projectVM.activeTaskId != nil {
+                // Viewing a task's session — show chat with back-to-board bar
+                VStack(spacing: 0) {
+                    taskChatHeader(project)
+                    Divider()
+                    ChatView()
+                }
+            } else {
+                // Viewing the project board
+                ProjectBoardDetailView(project: project)
+            }
+        } else {
+            ChatView()
+        }
+    }
+
+    private func taskChatHeader(_ project: Project) -> some View {
+        let task = projectVM.activeTaskId.flatMap { tid in
+            project.tasks.first { $0.id == tid }
+        }
+        let taskName = task?.title ?? "Task"
+
+        return HStack(spacing: 8) {
+            Button {
+                projectVM.backToBoard()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(project.name)
+                        .font(.caption)
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Back to Board")
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+
+            Text(taskName)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .lineLimit(1)
+
+            Spacer()
+
+            if let task {
+                taskStatusMenu(task, project: project)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.bar)
+    }
+
+    private func taskStatusMenu(_ task: ProjectTask, project: Project) -> some View {
+        Menu {
+            ForEach(ProjectTaskStatus.allCases, id: \.self) { status in
+                Button {
+                    projectVM.updateTaskStatus(task.id, in: project, status: status)
+                } label: {
+                    Label(status.label, systemImage: status.icon)
+                }
+                .disabled(task.status == status)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(taskStatusColor(task.status))
+                    .frame(width: 7, height: 7)
+                Text(task.status.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.quaternary)
+            .clipShape(Capsule())
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private func taskStatusColor(_ status: ProjectTaskStatus) -> Color {
+        switch status {
+        case .notStarted: .secondary
+        case .inProgress: .blue
+        case .needsHelp: .orange
+        case .completed: .green
+        }
     }
 
     private var terminalPanel: some View {

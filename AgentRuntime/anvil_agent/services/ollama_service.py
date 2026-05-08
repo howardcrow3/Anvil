@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import signal
+from pathlib import Path
 from typing import Any, Callable
 
 import httpx
@@ -81,7 +83,12 @@ class OllamaService:
             self._port = port
             self._base_url = self.BASE_URL_TEMPLATE.format(port=port)
 
-            env = {"OLLAMA_HOST": f"0.0.0.0:{port}"}
+            env = os.environ.copy()
+            env["OLLAMA_HOST"] = f"0.0.0.0:{port}"
+            # Ensure Ollama can find its dylibs (co-located with binary)
+            binary_dir = str(Path(binary).parent)
+            existing = env.get("DYLD_LIBRARY_PATH", "")
+            env["DYLD_LIBRARY_PATH"] = f"{binary_dir}:{existing}" if existing else binary_dir
             try:
                 self._process = await asyncio.create_subprocess_exec(
                     binary,
@@ -267,8 +274,32 @@ class OllamaService:
 
     def _resolve_binary(self) -> str | None:
         """Find the Ollama binary: bundled first, then system PATH."""
-        # In production the bundled binary would be in the app bundle.
-        # For now, fall back to system-installed Ollama.
+        # Check common install locations first
+        candidates = [
+            Path.home() / ".ollama" / "ollama",
+            Path("/usr/local/bin/ollama"),
+            Path("/opt/homebrew/bin/ollama"),
+        ]
+
+        # Check inside the running .app bundle (Anvil.app/Contents/Resources/ollama/ollama)
+        # Walk up from the Python executable or use ANVIL_APP_BUNDLE env var
+        app_bundle = os.environ.get("ANVIL_APP_BUNDLE")
+        if app_bundle:
+            candidates.insert(0, Path(app_bundle) / "Contents" / "Resources" / "ollama" / "ollama")
+
+        # Also check relative to the project root (dev mode)
+        # __file__ is .../AgentRuntime/anvil_agent/services/ollama_service.py
+        # project root is 4 levels up
+        project_root = Path(__file__).resolve().parent.parent.parent.parent
+        candidates.insert(0, project_root / "Resources" / "ollama" / "ollama")
+        candidates.insert(1, project_root / "build" / "Anvil.app" / "Contents" / "Resources" / "ollama" / "ollama")
+
+        for c in candidates:
+            if c.is_file() and os.access(str(c), os.X_OK):
+                logger.info("Found Ollama binary at %s", c)
+                return str(c)
+
+        # Fall back to system PATH
         return shutil.which("ollama")
 
     async def _check_port(self, port: int) -> bool:

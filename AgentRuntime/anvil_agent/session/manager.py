@@ -44,9 +44,9 @@ class SessionManager:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._search_db = search_db
 
-    def create(self, name: str = "") -> str:
+    def create(self, name: str = "", session_id: str | None = None) -> str:
         """Create a new session and return its ID."""
-        session_id = str(uuid.uuid4())
+        session_id = session_id or str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         meta = SessionMetadata(
             id=session_id,
@@ -101,9 +101,15 @@ class SessionManager:
         for line in path.read_text().splitlines():
             if not line.strip():
                 continue
-            data = json.loads(line)
-            data.pop("timestamp", None)
-            messages.append(ChatMessage(**data))
+            try:
+                data = json.loads(line)
+                # Skip non-message entries (e.g. Swift session metadata)
+                if "role" not in data:
+                    continue
+                data.pop("timestamp", None)
+                messages.append(ChatMessage(**data))
+            except (json.JSONDecodeError, TypeError, Exception):
+                continue
         return messages
 
     def list_sessions(self) -> list[dict[str, Any]]:

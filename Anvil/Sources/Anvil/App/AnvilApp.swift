@@ -10,6 +10,7 @@ struct AnvilApp: App {
     @State private var teamVM: TeamViewModel?
     @State private var settingsVM: SettingsViewModel?
     @State private var gatewayVM: GatewayViewModel?
+    @State private var projectVM: ProjectViewModel?
     @State private var updateService = UpdateService()
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
@@ -19,7 +20,7 @@ struct AnvilApp: App {
                 OnboardingView {
                     hasCompletedOnboarding = true
                 }
-            } else if let chatVM, let sessionVM, let modelVM, let teamVM, let settingsVM, let gatewayVM {
+            } else if let chatVM, let sessionVM, let modelVM, let teamVM, let settingsVM, let gatewayVM, let projectVM {
                 ContentView()
                     .environment(chatVM)
                     .environment(sessionVM)
@@ -27,6 +28,7 @@ struct AnvilApp: App {
                     .environment(teamVM)
                     .environment(settingsVM)
                     .environment(gatewayVM)
+                    .environment(projectVM)
                     .frame(minWidth: 900, minHeight: 600)
                     .task {
                         await startRuntime()
@@ -89,11 +91,31 @@ struct AnvilApp: App {
         teamVM = TeamViewModel(ipcClient: ipcClient)
         settingsVM = SettingsViewModel(ipcClient: ipcClient)
         gatewayVM = GatewayViewModel(ipcClient: ipcClient)
+        projectVM = ProjectViewModel(ipcClient: ipcClient)
     }
 
     private func startRuntime() async {
-        // Ensure Ollama is ready before starting the Python agent runtime
-        // (start() is idempotent — it piggybacks if already running)
+        let defaultSocket = AnvilConstants.socketPath
+
+        // First, check if an external runtime is already running (e.g. from run-dev.sh)
+        if FileManager.default.fileExists(atPath: defaultSocket) {
+            NSLog("[Anvil] Socket already exists at %@, trying to connect...", defaultSocket)
+            ipcClient.updateSocketPath(defaultSocket)
+            ipcClient.enableReconnect()
+            do {
+                try await ipcClient.connect()
+                NSLog("[Anvil] Connected to existing runtime")
+                await modelVM?.refreshModels()
+                sessionVM?.loadSessions()
+                settingsVM?.loadSettings()
+                projectVM?.loadProjects()
+                return
+            } catch {
+                NSLog("[Anvil] Existing socket not connectable, starting own runtime...")
+            }
+        }
+
+        // No existing runtime — start our own
         try? await appDelegate.ollamaService.start()
 
         let runtime = appDelegate.runtimeService
@@ -112,6 +134,7 @@ struct AnvilApp: App {
                 await modelVM?.refreshModels()
                 sessionVM?.loadSessions()
                 settingsVM?.loadSettings()
+                projectVM?.loadProjects()
             } else {
                 NSLog("[Anvil] Runtime started but no socket path received")
             }

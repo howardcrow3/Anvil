@@ -142,6 +142,7 @@ final class ChatViewModel {
         let userMessage = Message(role: .user, content: text)
         messages.append(userMessage)
         inputText = ""
+        persistMessages()
         isStreaming = true
         streamingContent = ""
 
@@ -226,6 +227,23 @@ final class ChatViewModel {
         }
         isStreaming = false
         streamingContent = ""
+        persistMessages()
+    }
+
+    /// Persist all messages to the session's .jsonl file so they survive app restart
+    private func persistMessages() {
+        guard let sessionId = currentSessionId else { return }
+        let path = "\(AnvilConstants.sessionsDirectory)/\(sessionId.uuidString).jsonl"
+        var lines: [String] = []
+        for msg in messages where !msg.content.isEmpty {
+            let dict: [String: Any] = ["role": msg.role.rawValue, "content": msg.content]
+            if let data = try? JSONSerialization.data(withJSONObject: dict),
+               let line = String(data: data, encoding: .utf8) {
+                lines.append(line)
+            }
+        }
+        let content = lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n")
+        try? content.write(toFile: path, atomically: true, encoding: .utf8)
     }
 
 }

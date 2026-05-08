@@ -44,6 +44,7 @@ from anvil_agent.skills.executor import SkillExecutor
 from anvil_agent.skills.hub import SkillsHub
 from anvil_agent.skills.improver import SkillImprover
 from anvil_agent.skills.loader import SkillLoader
+from anvil_agent.projects.manager import ProjectManager
 from anvil_agent.teams.manager import TeamManager
 from anvil_agent.teams.orchestrator import TeamOrchestrator
 from anvil_agent.system.info import get_system_info, recommend_models
@@ -123,6 +124,7 @@ class AnvilRuntime:
         )
         self._mcp_client = MCPClient()
         self._team_manager = TeamManager()
+        self._project_manager = ProjectManager()
         self._team_orchestrator = TeamOrchestrator(
             self._team_manager, project_dir=self._project_dir
         )
@@ -168,6 +170,14 @@ class AnvilRuntime:
         """Initialize and start the runtime."""
         # Initialize session search DB
         await self._search_db.initialize()
+
+        # Ensure Ollama is running before registering providers
+        if not await self._ollama.is_running():
+            started = await self._ollama.start()
+            if started:
+                logger.info("Ollama started on port %d", self._ollama.port)
+            else:
+                logger.warning("Failed to start Ollama — local models will be unavailable")
 
         # Register all providers
         self._setup_providers()
@@ -262,6 +272,7 @@ class AnvilRuntime:
         await self._mcp_client.stop_all()
         await self._team_manager.stop_all()
         await self._search_db.close()
+        await self._ollama.stop()
         await self._ipc.stop()
         logger.info("Anvil runtime stopped")
 
@@ -408,6 +419,9 @@ class AnvilRuntime:
         self._ipc.register_method("session.search", self._handle_session_search)
         self._ipc.register_method("skills.list", self._handle_skills_list)
         self._ipc.register_method("skills.create", self._handle_skills_create)
+        self._ipc.register_method("skills.import", self._handle_skills_import)
+        self._ipc.register_method("skills.toggle", self._handle_skills_toggle)
+        self._ipc.register_method("skills.delete", self._handle_skills_delete)
         self._ipc.register_method("skills.browse", self._handle_skills_browse)
         self._ipc.register_method("skills.search", self._handle_skills_search)
         self._ipc.register_method("permission.respond", self._handle_permission_respond)
@@ -419,6 +433,13 @@ class AnvilRuntime:
         self._ipc.register_method("gateway.stop", self._handle_gateway_stop)
         self._ipc.register_method("gateway.config.get", self._handle_gateway_config_get)
         self._ipc.register_method("gateway.config.set", self._handle_gateway_config_set)
+        self._ipc.register_method("project.create", self._handle_project_create)
+        self._ipc.register_method("project.list", self._handle_project_list)
+        self._ipc.register_method("project.get", self._handle_project_get)
+        self._ipc.register_method("project.delete", self._handle_project_delete)
+        self._ipc.register_method("project.task.create", self._handle_project_task_create)
+        self._ipc.register_method("project.task.update", self._handle_project_task_update)
+        self._ipc.register_method("project.task.delete", self._handle_project_task_delete)
 
     # ── Chat Handlers ─────────────────────────────────────────────
 
@@ -428,6 +449,20 @@ class AnvilRuntime:
         message = params.get("message", "")
         if not message:
             return {"error": "No message provided"}
+
+        # Switch session if the client specifies a different one
+        requested_session = params.get("session_id", "")
+        if requested_session and requested_session != self._current_session:
+            # Try to load existing session
+            existing_msgs = self._session_manager.load_messages(requested_session)
+            if existing_msgs or (self._session_manager._dir / f"{requested_session}.meta.json").exists():
+                self._current_session = requested_session
+                self._messages = existing_msgs
+            else:
+                # Session doesn't exist yet (create IPC may not have arrived) — create it
+                self._session_manager.create(session_id=requested_session)
+                self._current_session = requested_session
+                self._messages = []
 
         # Handle slash commands before entering the agent loop
         if message.startswith("/"):
@@ -533,7 +568,8 @@ class AnvilRuntime:
             await self._user_model.update_from_conversation(self._messages)
 
         name = params.get("name", "")
-        session_id = self._session_manager.create(name)
+        provided_id = params.get("session_id", None)
+        session_id = self._session_manager.create(name, session_id=provided_id)
         self._current_session = session_id
         self._messages = []
         self._nudger.reset()
@@ -547,7 +583,11 @@ class AnvilRuntime:
         messages = self._session_manager.load_messages(session_id)
         self._current_session = session_id
         self._messages = messages
-        return {"session_id": session_id, "message_count": len(messages)}
+        # Return messages so the UI can display the conversation history
+        msg_list = []
+        for m in messages:
+            msg_list.append({"role": m.role, "content": m.content or ""})
+        return {"session_id": session_id, "message_count": len(messages), "messages": msg_list}
 
     async def _handle_session_list(
         self, params: dict[str, Any], writer: Any
@@ -904,7 +944,7 @@ class AnvilRuntime:
     async def _handle_skills_list(
         self, params: dict[str, Any], writer: Any
     ) -> list[dict[str, Any]]:
-        return self._skill_loader.get_all_commands()
+        return self._skill_loader.get_all_items()
 
     async def _handle_skills_create(
         self, params: dict[str, Any], writer: Any
@@ -920,6 +960,38 @@ class AnvilRuntime:
             self._skill_loader.load_user_skills()
             return {"status": "ok", "name": name}
         return {"error": "Failed to create skill"}
+
+    async def _handle_skills_import(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        name = params.get("name", "")
+        content = params.get("content", "")
+        if not name or not content:
+            return {"error": "Both name and content are required"}
+        name = name.strip().lower().replace(" ", "-")
+        self._skill_creator.save_skill(name, content)
+        self._skill_loader.load_user_skills()
+        return {"status": "ok", "name": name}
+
+    async def _handle_skills_toggle(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        skill_id = params.get("id", "")
+        enabled = params.get("enabled", True)
+        if not skill_id:
+            return {"error": "No skill id provided"}
+        self._skill_loader.set_enabled(skill_id, enabled)
+        return {"status": "ok", "id": skill_id, "enabled": enabled}
+
+    async def _handle_skills_delete(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        skill_id = params.get("id", "")
+        if not skill_id:
+            return {"error": "No skill id provided"}
+        if self._skill_loader.delete_skill(skill_id):
+            return {"status": "ok", "id": skill_id}
+        return {"error": "Cannot delete this skill (only user-created skills can be deleted)"}
 
     async def _handle_skills_browse(
         self, params: dict[str, Any], writer: Any
@@ -1017,6 +1089,84 @@ class AnvilRuntime:
             return {"error": "Not a git repository"}
         staged = params.get("staged", False)
         return {"diff": await self._git_service.get_diff(staged=staged)}
+
+    # ── Project Handlers ──────────────────────────────────────────
+
+    async def _handle_project_create(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        name = params.get("name", "")
+        if not name:
+            return {"error": "name is required"}
+        project = self._project_manager.create_project(
+            name=name,
+            folder_path=params.get("folder_path", ""),
+            github_repo=params.get("github_repo", ""),
+            project_id=params.get("id"),
+        )
+        return project
+
+    async def _handle_project_list(
+        self, params: dict[str, Any], writer: Any
+    ) -> list[dict[str, Any]]:
+        return self._project_manager.list_projects()
+
+    async def _handle_project_get(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        project = self._project_manager.get_project(params.get("id", ""))
+        if not project:
+            return {"error": "Project not found"}
+        return project
+
+    async def _handle_project_delete(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        if self._project_manager.delete_project(params.get("id", "")):
+            return {"status": "ok"}
+        return {"error": "Project not found"}
+
+    async def _handle_project_task_create(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        task = self._project_manager.add_task(
+            project_id=params.get("project_id", ""),
+            title=params.get("title", ""),
+            description=params.get("description", ""),
+            task_id=params.get("id"),
+        )
+        if not task:
+            return {"error": "Project not found"}
+        return task
+
+    async def _handle_project_task_update(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        project_id = params.get("project_id", "")
+        task_id = params.get("task_id", "")
+        status = params.get("status", "not_started")
+        ok = self._project_manager.update_task_status(
+            project_id=project_id,
+            task_id=task_id,
+            status=status,
+        )
+        if ok:
+            # Broadcast task status change to all connected clients
+            await self._ipc.broadcast_notification("task.status", {
+                "project_id": project_id,
+                "task_id": task_id,
+                "status": status,
+            })
+        return {"status": "ok"} if ok else {"error": "Task not found"}
+
+    async def _handle_project_task_delete(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        ok = self._project_manager.delete_task(
+            project_id=params.get("project_id", ""),
+            task_id=params.get("task_id", ""),
+        )
+        return {"status": "ok"} if ok else {"error": "Task not found"}
 
 
 async def async_main() -> None:

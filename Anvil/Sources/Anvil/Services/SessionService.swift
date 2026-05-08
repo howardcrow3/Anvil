@@ -7,49 +7,37 @@ enum SessionService {
         try FileManager.default.ensureDirectoryExists(at: sessionsDir)
 
         let files = try FileManager.default.contentsOfDirectory(atPath: sessionsDir)
-            .filter { $0.hasSuffix(".jsonl") }
+            .filter { $0.hasSuffix(".session.json") }
 
-        return try files.compactMap { filename in
+        return files.compactMap { filename in
             let path = "\(sessionsDir)/\(filename)"
-            let data = try Data(contentsOf: URL(fileURLWithPath: path))
-            guard let firstLine = String(data: data, encoding: .utf8)?.components(separatedBy: "\n").first,
-                  let lineData = firstLine.data(using: .utf8) else { return nil }
-            return try JSONDecoder().decode(Session.self, from: lineData)
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+            // Try default (Double) first (Swift-written), then flexible ISO8601 (Python-written)
+            if let session = try? JSONDecoder().decode(Session.self, from: data) {
+                return session
+            }
+            return try? ProjectService.flexibleDateDecoder.decode(Session.self, from: data)
         }
     }
 
     static func saveSession(_ session: Session) throws {
         try FileManager.default.ensureDirectoryExists(at: sessionsDir)
 
-        let path = "\(sessionsDir)/\(session.id.uuidString).jsonl"
+        // Save metadata as .session.json (separate from Python's .jsonl message log)
+        let path = "\(sessionsDir)/\(session.id.uuidString).session.json"
         let data = try JSONEncoder().encode(session)
-        guard var jsonString = String(data: data, encoding: .utf8) else { return }
-        jsonString += "\n"
-        try jsonString.write(toFile: path, atomically: true, encoding: .utf8)
+        try data.write(to: URL(fileURLWithPath: path))
     }
 
     static func deleteSession(_ session: Session) throws {
-        let path = "\(sessionsDir)/\(session.id.uuidString).jsonl"
-        if FileManager.default.fileExists(atPath: path) {
-            try FileManager.default.removeItem(atPath: path)
+        let metaPath = "\(sessionsDir)/\(session.id.uuidString).session.json"
+        if FileManager.default.fileExists(atPath: metaPath) {
+            try FileManager.default.removeItem(atPath: metaPath)
         }
-    }
-
-    static func appendMessage(_ message: Message, toSession sessionId: UUID) throws {
-        let path = "\(sessionsDir)/\(sessionId.uuidString).jsonl"
-        let entry: [String: String] = [
-            "role": message.role.rawValue,
-            "content": message.content,
-            "timestamp": ISO8601DateFormatter().string(from: message.timestamp)
-        ]
-        let data = try JSONSerialization.data(withJSONObject: entry)
-        guard var line = String(data: data, encoding: .utf8) else { return }
-        line += "\n"
-
-        if let handle = FileHandle(forWritingAtPath: path) {
-            handle.seekToEndOfFile()
-            handle.write(line.data(using: .utf8)!)
-            handle.closeFile()
+        // Also clean up legacy .jsonl if it was from old format
+        let legacyPath = "\(sessionsDir)/\(session.id.uuidString).jsonl"
+        if FileManager.default.fileExists(atPath: legacyPath) {
+            try? FileManager.default.removeItem(atPath: legacyPath)
         }
     }
 }
