@@ -9,7 +9,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-READ_ONLY_TOOLS = {"read_file", "glob", "grep", "web_search", "web_fetch", "ask_user"}
+READ_ONLY_TOOLS = {
+    "read_file", "glob", "grep", "web_search", "web_fetch", "ask_user",
+    "tool_search", "tool_describe", "skills_list", "skill_view",
+}
 
 
 class PermissionMode(str, Enum):

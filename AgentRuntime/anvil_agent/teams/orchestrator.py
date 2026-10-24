@@ -35,10 +35,10 @@ class TeamOrchestrator:
 
         spec = {
             "name": "Feature Team",
-            "lead": {"model": "claude-opus-4-6", "provider": "claude"},
+            "lead": {"model": "claude-opus-5-5", "provider": "claude"},
             "teammates": [
                 {"name": "coder", "role": "implementation", "model": "mistral-small:24b", "provider": "ollama"},
-                {"name": "reviewer", "role": "code_review", "model": "claude-sonnet-4-6", "provider": "claude"},
+                {"name": "reviewer", "role": "code_review", "model": "claude-sonnet-5-5", "provider": "claude"},
             ],
             "tasks": [
                 {"title": "Implement feature X", "assignee": "coder"},
@@ -60,7 +60,7 @@ class TeamOrchestrator:
         for member in members:
             member_name = member.get("name", f"agent-{len(spawned)}")
             role = member.get("role", "general")
-            model = member.get("model", "claude-sonnet-4-6")
+            model = member.get("model", "claude-sonnet-5-5")
             provider = member.get("provider", "claude")
             socket_path = f"/tmp/anvil_teammate_{uuid.uuid4().hex[:8]}.sock"
 

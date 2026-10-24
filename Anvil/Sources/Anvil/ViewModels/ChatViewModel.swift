@@ -10,6 +10,8 @@ private struct ChatEventData: Sendable {
     let content: String?
     let isError: Bool
     let message: String?
+    let requestId: String?
+    let toolName: String?
 
     init(_ params: [String: Any]) {
         self.type = params["type"] as? String
@@ -19,6 +21,8 @@ private struct ChatEventData: Sendable {
         self.content = params["content"] as? String
         self.isError = params["is_error"] as? Bool ?? false
         self.message = params["message"] as? String
+        self.requestId = params["request_id"] as? String
+        self.toolName = params["tool_name"] as? String
 
         if let argsDict = params["arguments"] as? [String: Any] {
             var result: [String: String] = [:]
@@ -43,6 +47,8 @@ struct PermissionRequest: Identifiable, Sendable {
     let id: String
     let toolName: String
     let arguments: [String: String]
+    var source: String? = nil
+    var subagentId: String? = nil
 }
 
 @Observable @MainActor
@@ -109,13 +115,16 @@ final class ChatViewModel {
             }
 
         case "permission_request":
-            if let reqId = event.id, let toolName = event.name {
+            if let reqId = event.requestId ?? event.id, let toolName = event.toolName ?? event.name {
                 pendingPermission = PermissionRequest(
                     id: reqId,
                     toolName: toolName,
                     arguments: event.arguments
                 )
             }
+
+        case "compaction":
+            messages.append(Message(role: .system, content: "Context compacted to stay within the model's window."))
 
         case "done":
             finishStreaming()

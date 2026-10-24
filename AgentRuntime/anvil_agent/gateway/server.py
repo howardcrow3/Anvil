@@ -291,7 +291,7 @@ def main() -> None:
         # Set up model router
         router = ModelRouter()
         api_key = settings.get_api_key()
-        default_model = settings.get("default_model") or "claude-sonnet-4-20250514"
+        default_model = settings.get("default_model") or "claude-sonnet-5-5"
 
         if api_key:
             provider = ClaudeProvider(model=default_model, api_key=api_key)
@@ -305,6 +305,7 @@ def main() -> None:
                 provider=router.active,
                 tool_registry=tool_registry,
                 system_prompt=SYSTEM_PROMPT,
+                unattended=True,
             )
 
         gateway = GatewayServer(

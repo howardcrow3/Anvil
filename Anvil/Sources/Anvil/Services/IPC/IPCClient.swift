@@ -14,6 +14,8 @@ final class IPCClient: @unchecked Sendable {
     var onChatEvent: (@Sendable ([String: Any]) -> Void)?
     var onConnectionStateChanged: (@Sendable (Bool) -> Void)?
     var onTaskStatusUpdate: (@Sendable ([String: Any]) -> Void)?
+    /// Subagent, kanban, learning and curator notifications (method name + params).
+    var onNotification: (@Sendable (String, [String: Any]) -> Void)?
 
     private var reconnectTask: Task<Void, Never>?
     private var shouldReconnect = false
@@ -299,6 +301,8 @@ final class IPCClient: @unchecked Sendable {
             onChatEvent?(params)
         case "task.status":
             onTaskStatusUpdate?(params)
+        case "subagent.update", "subagent.permission_request", "kanban.event", "learning.review", "curator.report":
+            onNotification?(method, params)
         default:
             break
         }

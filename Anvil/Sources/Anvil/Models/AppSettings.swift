@@ -33,7 +33,7 @@ struct AppSettings: Codable, Sendable {
 
     init(
         apiKey: String = "",
-        defaultModel: String = "claude-opus-4-6",
+        defaultModel: String = "claude-opus-5-5",
         permissionMode: PermissionMode = .ask,
         endpoints: [Endpoint] = [],
         mcpServers: [MCPServer] = [],

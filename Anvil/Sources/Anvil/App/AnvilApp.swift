@@ -11,6 +11,7 @@ struct AnvilApp: App {
     @State private var settingsVM: SettingsViewModel?
     @State private var gatewayVM: GatewayViewModel?
     @State private var projectVM: ProjectViewModel?
+    @State private var agentsVM: AgentActivityViewModel?
     @State private var updateService = UpdateService()
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
@@ -20,7 +21,7 @@ struct AnvilApp: App {
                 OnboardingView {
                     hasCompletedOnboarding = true
                 }
-            } else if let chatVM, let sessionVM, let modelVM, let teamVM, let settingsVM, let gatewayVM, let projectVM {
+            } else if let chatVM, let sessionVM, let modelVM, let teamVM, let settingsVM, let gatewayVM, let projectVM, let agentsVM {
                 ContentView()
                     .environment(chatVM)
                     .environment(sessionVM)
@@ -29,6 +30,7 @@ struct AnvilApp: App {
                     .environment(settingsVM)
                     .environment(gatewayVM)
                     .environment(projectVM)
+                    .environment(agentsVM)
                     .frame(minWidth: 900, minHeight: 600)
                     .task {
                         await startRuntime()
@@ -92,6 +94,7 @@ struct AnvilApp: App {
         settingsVM = SettingsViewModel(ipcClient: ipcClient)
         gatewayVM = GatewayViewModel(ipcClient: ipcClient)
         projectVM = ProjectViewModel(ipcClient: ipcClient)
+        agentsVM = AgentActivityViewModel(ipcClient: ipcClient)
     }
 
     private func startRuntime() async {
@@ -109,6 +112,7 @@ struct AnvilApp: App {
                 sessionVM?.loadSessions()
                 settingsVM?.loadSettings()
                 projectVM?.loadProjects()
+                await agentsVM?.load()
                 return
             } catch {
                 NSLog("[Anvil] Existing socket not connectable, starting own runtime...")
@@ -135,6 +139,7 @@ struct AnvilApp: App {
                 sessionVM?.loadSessions()
                 settingsVM?.loadSettings()
                 projectVM?.loadProjects()
+                await agentsVM?.load()
             } else {
                 NSLog("[Anvil] Runtime started but no socket path received")
             }

@@ -9,6 +9,7 @@ import os
 import signal
 import sys
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,14 @@ from anvil_agent.session.manager import SessionManager
 from anvil_agent.session.search import SessionSearchDB
 from anvil_agent.settings import SettingsManager
 from anvil_agent.skills.creator import SkillCreator
+from anvil_agent.kanban import KanbanDB, KanbanDispatcher
+from anvil_agent.learning import Curator, ReviewManager
+from anvil_agent.learning.review import ReviewConfig
+from anvil_agent.services.model_catalog import lookup_context_window
+from anvil_agent.subagents.manager import NonInteractivePermissions, SubagentManager
+from anvil_agent.tools.delegate_tool import DelegateTool
+from anvil_agent.tools.kanban_tool import KanbanTool
+from anvil_agent.tools.skill_tools import MemoryTool, SkillTools
 from anvil_agent.skills.executor import SkillExecutor
 from anvil_agent.skills.hub import SkillsHub
 from anvil_agent.skills.improver import SkillImprover
@@ -106,6 +115,7 @@ class AnvilRuntime:
         # Core components
         self._router = ModelRouter()
         self._tool_registry = create_default_registry(search_db=self._search_db)
+        self._tool_registry.tool_search = self._settings.get("tool_search") or "auto"
         self._session_manager = SessionManager(search_db=self._search_db)
         self._memory_manager = MemoryManager(self._project_dir)
         self._user_model = UserModelManager()
@@ -143,6 +153,33 @@ class AnvilRuntime:
             allow_list=self._settings.get("tool_allow_list"),
             deny_list=self._settings.get("tool_deny_list"),
         )
+
+        # Subagents, kanban, self-improvement
+        self._skill_tools = SkillTools()
+        for _t in [MemoryTool(), *self._skill_tools.tools()]:
+            self._tool_registry.register(_t)
+        self._subagents = SubagentManager(
+            loop_factory=self._subagent_loop,
+            max_concurrent=int(self._settings.get("subagent_max_concurrent") or 4),
+            on_event=self._broadcast,
+        )
+        self._kanban_db = KanbanDB(on_event=self._broadcast_sync)
+        self._kanban = KanbanDispatcher(
+            self._kanban_db, self._subagents, project_dir=str(self._project_dir),
+            max_workers=int(self._settings.get("kanban_max_workers") or 2),
+        )
+        self._tool_registry.register(DelegateTool(lambda: self._subagents))
+        self._tool_registry.register(KanbanTool(lambda: self._kanban_db))
+        self._curator = Curator(
+            enabled=self._settings.get("curator_enabled") is not False,
+            consolidate=bool(self._settings.get("curator_consolidate")),
+        )
+        self._review = ReviewManager(
+            self._subagents,
+            ReviewConfig(enabled=self._settings.get("learning_review_enabled") is not False),
+            on_result=self._on_review_result,
+        )
+        self._last_activity = 0.0
 
         # Gateway
         self._gateway: GatewayServer | None = None
@@ -206,6 +243,7 @@ class AnvilRuntime:
                 permission_manager=self._permission_manager,
                 nudger=self._nudger,
                 skill_creator=self._skill_creator,
+                **self._loop_extras(),
             )
         else:
             logger.warning("No model provider configured — agent loop deferred until a model is selected")
@@ -286,7 +324,7 @@ class AnvilRuntime:
         active_model = (
             self._args.model
             or self._settings.get("default_model")
-            or "claude-sonnet-4-20250514"
+            or "claude-sonnet-5-5"
         )
 
         # Register cloud (Claude) models
@@ -384,6 +422,77 @@ class AnvilRuntime:
 
     # ── IPC Registration ──────────────────────────────────────────
 
+    # ── Subagents / kanban / learning plumbing ───────────────────
+
+    def _loop_extras(self) -> dict[str, Any]:
+        return {
+            "context_window": lookup_context_window(self._router.active_model_id),
+            "notes_source": self._subagents.completion_notes,
+        }
+
+    def _subagent_loop(self, spec: Any) -> AgentLoop:
+        registry = self._tool_registry.filtered(spec.allowed_tools, list(spec.blocked_tools))
+        unattended = bool(spec.env.get("unattended"))
+        perms: Any = self._permission_manager
+        if unattended:
+            extra = {"kanban"} if spec.env.get("kanban_task") else set()
+            extra |= {"memory", "skill_manage"} if spec.env.get("review") else set()
+            perms = NonInteractivePermissions(self._permission_manager, extra_allow=extra)
+        prompt = SYSTEM_PROMPT + (
+            f"\n\nYou are a {spec.role} subagent working on a delegated task. Be concise; your final message is "
+            "returned to the agent that spawned you."
+        )
+        return AgentLoop(
+            provider=self._router.active,
+            tool_registry=registry,
+            system_prompt=prompt,
+            working_directory=str(self._project_dir),
+            permission_manager=perms,
+            max_iterations=spec.max_iterations,
+            unattended=unattended,
+            context_window=lookup_context_window(self._router.active_model_id),
+        )
+
+    async def _broadcast(self, method: str, params: dict[str, Any]) -> None:
+        try:
+            await self._ipc.broadcast_notification(method, params)
+        except Exception:  # noqa: BLE001
+            logger.debug("broadcast %s failed", method, exc_info=True)
+
+    def _broadcast_sync(self, method: str, params: dict[str, Any]) -> None:
+        try:
+            asyncio.get_running_loop().create_task(self._broadcast(method, params))
+        except RuntimeError:
+            pass
+
+    async def _on_review_result(self, payload: dict[str, Any]) -> None:
+        await self._broadcast("learning.review", payload)
+
+    def _is_local_model(self) -> bool:
+        active = self._router.active_model_id
+        return any(m.get("id") == active and m.get("provider") == "local" for m in self._router.list_models())
+
+    async def _after_turn(self, tool_calls: int) -> None:
+        """Post-turn background work: self-improvement review and the curator's idle check."""
+        self._last_activity = time.time()
+        try:
+            await self._review.maybe_review(self._messages, tool_calls, model=self._router.active_model_id)
+        except Exception:  # noqa: BLE001
+            logger.debug("review trigger failed", exc_info=True)
+        if self._curator.should_run(last_activity=None):
+            asyncio.create_task(self._run_curator())
+
+    async def _run_curator(self) -> dict[str, Any]:
+        async def consolidate(prompt: str) -> str:
+            from anvil_agent.subagents.manager import SubagentSpec
+            rec = await self._subagents.spawn(SubagentSpec(
+                goal=prompt, role="curator", allowed_tools=["skills_list", "skill_view", "skill_manage"],
+                max_iterations=20, timeout_seconds=600, env={"unattended": True, "review": True}))
+            return (await self._subagents.wait(rec.id)).summary or ""
+        report = await self._curator.run(spawn_consolidation=consolidate)
+        await self._broadcast("curator.report", report)
+        return report
+
     def _register_ipc_methods(self) -> None:
         self._ipc.register_method("chat.send", self._handle_chat_send)
         self._ipc.register_method("chat.cancel", self._handle_chat_cancel)
@@ -440,6 +549,18 @@ class AnvilRuntime:
         self._ipc.register_method("project.task.create", self._handle_project_task_create)
         self._ipc.register_method("project.task.update", self._handle_project_task_update)
         self._ipc.register_method("project.task.delete", self._handle_project_task_delete)
+        self._ipc.register_method("subagents.list", self._handle_subagents_list)
+        self._ipc.register_method("subagents.steer", self._handle_subagents_steer)
+        self._ipc.register_method("subagents.stop", self._handle_subagents_stop)
+        self._ipc.register_method("kanban.list", self._handle_kanban_list)
+        self._ipc.register_method("kanban.show", self._handle_kanban_show)
+        self._ipc.register_method("kanban.create", self._handle_kanban_create)
+        self._ipc.register_method("kanban.action", self._handle_kanban_action)
+        self._ipc.register_method("kanban.dispatcher", self._handle_kanban_dispatcher)
+        self._ipc.register_method("curator.status", self._handle_curator_status)
+        self._ipc.register_method("curator.run", self._handle_curator_run)
+        self._ipc.register_method("curator.pin", self._handle_curator_pin)
+        self._ipc.register_method("curator.restore", self._handle_curator_restore)
 
     # ── Chat Handlers ─────────────────────────────────────────────
 
@@ -530,13 +651,14 @@ class AnvilRuntime:
                 {"type": "done", "stop_reason": "no_provider"},
             )
             return {"status": "ok"}
+        if self._is_local_model():
+            await self._review.stop_running()
+        turn_tool_calls = 0
         async for event in self._agent_loop.run(self._messages):
+            if event.get("type") == "tool_call":
+                turn_tool_calls += 1
             if event.get("type") == "skill_creation_check":
-                # Log skill creation opportunity (actual creation via skills.create IPC)
-                logger.info(
-                    "Skill creation candidate: %d tool calls",
-                    event.get("tool_call_count", 0),
-                )
+                # Superseded by the background review (learning/review.py), which saves skills itself.
                 continue
             await self._ipc.send_notification(writer, "chat.event", event)
             if event.get("type") == "text_delta":
@@ -549,6 +671,7 @@ class AnvilRuntime:
             if self._current_session:
                 self._session_manager.append_message(self._current_session, assistant_msg)
 
+        await self._after_turn(turn_tool_calls)
         return {"status": "ok"}
 
     async def _handle_chat_cancel(
@@ -668,6 +791,7 @@ class AnvilRuntime:
                 permission_manager=self._permission_manager,
                 nudger=self._nudger,
                 skill_creator=self._skill_creator,
+                **self._loop_extras(),
             )
             return {"status": "ok", "active": model_id}
         except ValueError as e:
@@ -703,7 +827,7 @@ class AnvilRuntime:
         team_id = params.get("team_id", "")
         name = params.get("name", "")
         role = params.get("role", "general")
-        model = params.get("model", "claude-sonnet-4-6")
+        model = params.get("model", "claude-sonnet-5-5")
         provider = params.get("provider", "claude")
         socket_path = f"/tmp/anvil_teammate_{uuid.uuid4().hex[:8]}.sock"
         member_id = await self._team_manager.spawn_teammate(
@@ -862,7 +986,7 @@ class AnvilRuntime:
                         self._router.register(model_id, provider, provider_type="cloud")
                 # Select default model and create agent loop if needed
                 default_model = (
-                    self._settings.get("default_model") or "claude-sonnet-4-20250514"
+                    self._settings.get("default_model") or "claude-sonnet-5-5"
                 )
                 if self._router.has(default_model):
                     self._router.select(default_model)
@@ -875,6 +999,7 @@ class AnvilRuntime:
                         permission_manager=self._permission_manager,
                         nudger=self._nudger,
                         skill_creator=self._skill_creator,
+                        **self._loop_extras(),
                     )
                     logger.info("Agent loop created after API key was set")
 
@@ -916,6 +1041,88 @@ class AnvilRuntime:
         return self._plan_manager.list_plans(project_dir=self._project_dir)
 
     # ── Permission Handlers ────────────────────────────────────────
+
+    # ── Subagent / Kanban / Curator handlers ─────────────────────
+
+    async def _handle_subagents_list(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        return {"subagents": [r.to_dict() for r in self._subagents.list()]}
+
+    async def _handle_subagents_steer(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        if params.get("id") in (None, "", "main"):
+            if self._agent_loop:
+                self._agent_loop.steer(params.get("message", ""))
+                return {"status": "ok"}
+            return {"error": "no active agent"}
+        ok = self._subagents.steer(params.get("id", ""), params.get("message", ""))
+        return {"status": "ok"} if ok else {"error": "subagent not running"}
+
+    async def _handle_subagents_stop(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        if params.get("all"):
+            await self._subagents.stop_all()
+            return {"status": "ok"}
+        return await self._subagents.stop(params.get("id", ""))
+
+    async def _handle_kanban_list(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        return {"tasks": self._kanban_db.list_tasks(params.get("status")), "stats": self._kanban_db.stats(),
+                "dispatcher": {"running": self._kanban.running, "active": self._kanban.active_tasks}}
+
+    async def _handle_kanban_show(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        try:
+            return {"task": self._kanban_db.get_task(params.get("id", ""))}
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+    async def _handle_kanban_create(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        try:
+            t = self._kanban_db.create_task(
+                params.get("title", ""), params.get("body", ""), assignee=params.get("assignee"),
+                priority=int(params.get("priority") or 0), parents=params.get("parents") or [],
+                created_by="user", project_dir=params.get("project_dir"))
+            return {"task": t}
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+    async def _handle_kanban_action(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        tid, action = params.get("id", ""), params.get("action", "")
+        try:
+            if action == "complete":
+                return {"task": self._kanban_db.complete(tid, params.get("summary", ""), force=True, by="user")}
+            if action == "block":
+                return {"task": self._kanban_db.block(tid, params.get("reason", ""), by="user")}
+            if action == "unblock":
+                return {"task": self._kanban_db.unblock(tid)}
+            if action == "archive":
+                self._kanban_db.archive(tid)
+                return {"status": "ok"}
+            if action == "comment":
+                self._kanban_db.comment(tid, "user", params.get("body", ""))
+                return {"status": "ok"}
+            if action == "stop":
+                await self._kanban.stop_task(tid)
+                return {"status": "ok"}
+            return {"error": f"unknown action '{action}'"}
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+    async def _handle_kanban_dispatcher(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        if params.get("enabled"):
+            await self._kanban.start()
+        else:
+            await self._kanban.stop(stop_workers=bool(params.get("stop_workers")))
+        return {"running": self._kanban.running}
+
+    async def _handle_curator_status(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        return self._curator.status()
+
+    async def _handle_curator_run(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        return await self._run_curator()
+
+    async def _handle_curator_pin(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        self._curator.pin(params.get("name", ""), bool(params.get("pinned", True)))
+        return {"status": "ok"}
+
+    async def _handle_curator_restore(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        return {"status": "ok"} if self._curator.restore(params.get("name", "")) else {"error": "nothing to restore"}
 
     async def _handle_permission_respond(
         self, params: dict[str, Any], writer: Any

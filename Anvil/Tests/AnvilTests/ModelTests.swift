@@ -138,7 +138,7 @@ struct AppSettingsTests {
     @Test func appSettingsDefaults() {
         let settings = AppSettings()
         #expect(settings.apiKey == "")
-        #expect(settings.defaultModel == "claude-opus-4-6")
+        #expect(settings.defaultModel == "claude-opus-5-5")
         #expect(settings.permissionMode == .ask)
         #expect(settings.endpoints.isEmpty)
         #expect(settings.mcpServers.isEmpty)

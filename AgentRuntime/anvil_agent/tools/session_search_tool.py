@@ -10,6 +10,8 @@ from anvil_agent.tools.base import Tool
 
 
 class SessionSearchTool(Tool):
+
+    defer = True
     name = "session_search"
     description = "Search across past conversation sessions using full-text search."
     requires_approval = False

@@ -22,6 +22,7 @@ class MCPTool(Tool):
     """A tool backed by an MCP server."""
 
     requires_approval = True
+    defer = True
 
     def __init__(
         self,
