@@ -1,24 +1,23 @@
 # Anvil — Where Agents Are Forged
 
-A native macOS desktop AI agent app for Apple Silicon. Provides Claude Code and Cowork capabilities with the flexibility to choose between cloud models (Claude via API), local models (via bundled Ollama), and any custom OpenAI-compatible endpoint.
+A cross-platform desktop AI agent app (Electron + React front end, Python agent runtime). Provides Claude Code and Cowork capabilities with the flexibility to choose between cloud models (Claude via API), local models (via bundled Ollama), and any custom OpenAI-compatible endpoint.
 
 ## Features
 
 - **Multi-Model Support**: Switch between Claude (cloud), local models via Ollama, or any OpenAI-compatible endpoint
 - **Full Tool System**: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch — all built in
 - **Agent Teams**: Spawn multi-agent teams with shared task lists and inter-agent messaging
-- **Native macOS**: SwiftUI app with full Apple Silicon optimization and Metal GPU acceleration
+- **Cross-platform**: Electron + React desktop app
 - **MCP Support**: Add Model Context Protocol servers for extensible tool access
 - **Session Management**: Persistent sessions with resume, fork, and auto-compression
 - **Memory System**: Project-level CLAUDE.md and persistent memory across sessions
 - **Hooks**: Lifecycle hooks for controlling agent behavior
-- **Single DMG Install**: Everything bundled — just drag to Applications
 
 ## Architecture
 
 ```
-SwiftUI App (native macOS UI)
-    ↕ IPC (Unix domain socket + JSON-RPC)
+Electron + React app
+    ↕ IPC (WebSocket + JSON-RPC 2.0)
 Python Agent Runtime
     ↕ Model Router
     ├── Claude API (Anthropic SDK)
@@ -44,72 +43,34 @@ Optional per-server keys: `enabled`, `timeout`, `connect_timeout`, `env`, `cwd`.
 
 ## Requirements
 
-- macOS 14.0+ (Sonoma or later)
-- Apple Silicon (M1/M2/M3/M4)
+- Node.js 20+ and Python 3.11+
 - 8GB+ RAM (16GB+ recommended for local models)
 
 ## Development Setup
 
-### Prerequisites
-
 ```bash
-# Swift 6.0+ (included with Xcode 16+)
-swift --version
-
-# Python 3.11+
-python3 --version
-
-# Ollama (for local model testing)
-brew install ollama
-```
-
-### Build & Run
-
-```bash
-# Build the SwiftUI app
-cd Anvil
-swift build
-
-# Run the Python agent runtime (development)
+# Python agent runtime
 cd AgentRuntime
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python3 -m anvil_agent --socket-path /tmp/anvil.sock
+python3 -m venv venv && source venv/bin/activate
+pip install -e .
 
-# Run the full app
-swift run Anvil
+# Desktop app (starts the runtime itself)
+cd ../Desktop
+npm ci
+npm run dev
 ```
+
+See `Desktop/README.md` for tests, e2e and packaging notes.
 
 ### Project Structure
 
 ```
 Anvil/
-├── Anvil/                      # SwiftUI macOS app
-│   ├── Package.swift
-│   └── Sources/Anvil/
-│       ├── App/                # App entry point
-│       ├── Views/              # SwiftUI views
-│       ├── ViewModels/         # Observable view models
-│       ├── Models/             # Data models
-│       ├── Services/           # IPC, Ollama, Keychain
-│       └── Utilities/          # Constants, extensions
+├── Desktop/                    # Electron + React app
 ├── AgentRuntime/               # Python agent runtime
-│   ├── pyproject.toml
-│   ├── anvil_agent/
-│   │   ├── main.py             # Entry point
-│   │   ├── agent_loop.py       # Core agent loop
-│   │   ├── ipc/                # JSON-RPC IPC server
-│   │   ├── models/             # Model providers
-│   │   ├── tools/              # Built-in tools
-│   │   ├── session/            # Session persistence
-│   │   ├── memory/             # Memory system
-│   │   ├── hooks/              # Hooks engine
-│   │   ├── mcp/                # MCP client
-│   │   ├── teams/              # Multi-agent teams
-│   │   └── services/           # Ollama, endpoints
+│   ├── anvil_agent/            # agent loop, tools, ipc, mcp, models, ...
 │   └── tests/
-├── Scripts/                    # Build and packaging scripts
+├── Scripts/                    # Helper scripts
 └── Resources/                  # Icons, default configs
 ```
 
