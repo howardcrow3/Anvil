@@ -26,6 +26,22 @@ Python Agent Runtime
     └── Custom endpoints (OpenAI-compatible)
 ```
 
+## MCP Servers
+
+Anvil connects to MCP servers with the official `mcp` SDK over stdio, streamable HTTP, or SSE. Configure them in `~/.anvil/mcp-servers.json`:
+
+```json
+{
+  "mcpServers": {
+    "files":  {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]},
+    "remote": {"url": "https://example.com/mcp", "headers": {"Authorization": "Bearer ${TOKEN}"}},
+    "legacy": {"url": "https://example.com/sse", "type": "sse"}
+  }
+}
+```
+
+Optional per-server keys: `enabled`, `timeout`, `connect_timeout`, `env`, `cwd`. Tools appear as `mcp__<server>__<tool>`, require approval, and are reached through tool search.
+
 ## Requirements
 
 - macOS 14.0+ (Sonoma or later)

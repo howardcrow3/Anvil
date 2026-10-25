@@ -10,6 +10,7 @@ struct AnvilApp: App {
     @State private var teamVM: TeamViewModel?
     @State private var settingsVM: SettingsViewModel?
     @State private var gatewayVM: GatewayViewModel?
+    @State private var mcpVM: MCPViewModel?
     @State private var projectVM: ProjectViewModel?
     @State private var agentsVM: AgentActivityViewModel?
     @State private var updateService = UpdateService()
@@ -78,10 +79,11 @@ struct AnvilApp: App {
         }
 
         Settings {
-            if let settingsVM, let gatewayVM {
+            if let settingsVM, let gatewayVM, let mcpVM {
                 SettingsView()
                     .environment(settingsVM)
                     .environment(gatewayVM)
+                    .environment(mcpVM)
             }
         }
     }
@@ -93,6 +95,7 @@ struct AnvilApp: App {
         teamVM = TeamViewModel(ipcClient: ipcClient)
         settingsVM = SettingsViewModel(ipcClient: ipcClient)
         gatewayVM = GatewayViewModel(ipcClient: ipcClient)
+        mcpVM = MCPViewModel(ipcClient: ipcClient)
         projectVM = ProjectViewModel(ipcClient: ipcClient)
         agentsVM = AgentActivityViewModel(ipcClient: ipcClient)
     }

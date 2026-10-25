@@ -141,7 +141,6 @@ struct AppSettingsTests {
         #expect(settings.defaultModel == "claude-opus-5-5")
         #expect(settings.permissionMode == .ask)
         #expect(settings.endpoints.isEmpty)
-        #expect(settings.mcpServers.isEmpty)
         #expect(settings.ollamaPort == 11434)
         #expect(settings.theme == "system")
     }
@@ -158,13 +157,6 @@ struct AppSettingsTests {
         #expect(PermissionMode.ask.rawValue == "ask")
         #expect(PermissionMode.acceptEdits.rawValue == "accept_edits")
         #expect(PermissionMode.trust.rawValue == "trust")
-    }
-
-    @Test func mcpServerInit() {
-        let server = MCPServer(name: "test", command: "/usr/bin/test")
-        #expect(server.id == "test")
-        #expect(server.enabled == true)
-        #expect(server.args.isEmpty)
     }
 }
 
@@ -236,5 +228,76 @@ struct ConstantsTests {
         #expect(AnvilConstants.fallbackOllamaPort == 11435)
         #expect(AnvilConstants.socketPath.contains("anvil"))
         #expect(AnvilConstants.ollamaBaseURL.hasPrefix("http://"))
+    }
+}
+
+
+@Suite("MCPServerConfig Tests")
+struct MCPServerConfigTests {
+    @Test func dictRoundTrip() throws {
+        var server = MCPServerConfig(name: "files", command: "npx", args: ["-y", "pkg"])
+        server.env = [MCPKeyValue(key: "TOKEN", value: "abc"), MCPKeyValue(key: "  ", value: "dropped")]
+        let dict = server.toDict()
+        #expect(dict["transport"] as? String == "stdio")
+        #expect(dict["args"] as? [String] == ["-y", "pkg"])
+        #expect((dict["env"] as? [String: String]) == ["TOKEN": "abc"])
+
+        let decoded = try #require(MCPServerConfig(dict: dict))
+        #expect(decoded.id == "files")
+        #expect(decoded.command == "npx")
+        #expect(decoded.env.map(\.key) == ["TOKEN"])
+    }
+
+    @Test func runtimeStatusParsing() throws {
+        let dict: [String: Any] = [
+            "name": "web", "transport": "http", "url": "https://x.test/mcp", "enabled": true,
+            "status": "failed", "error": "boom",
+            "tools": [["name": "mcp__web__add", "description": "Add"]],
+        ]
+        let server = try #require(MCPServerConfig(dict: dict))
+        #expect(server.transport == .http)
+        #expect(server.state == .failed)
+        #expect(server.error == "boom")
+        #expect(server.tools.map(\.name) == ["mcp__web__add"])
+        #expect(MCPServerConfig(dict: ["transport": "stdio"]) == nil)
+    }
+
+    @Test func validation() {
+        #expect(MCPServerConfig().validationError(otherNames: []) != nil)
+        #expect(MCPServerConfig(name: "a", command: "x").validationError(otherNames: []) == nil)
+        #expect(MCPServerConfig(name: "a", command: "x").validationError(otherNames: ["a"]) != nil)
+        #expect(MCPServerConfig(name: "a", command: " ").validationError(otherNames: []) != nil)
+        #expect(MCPServerConfig(name: "a", transport: .http, url: "ftp://x").validationError(otherNames: []) != nil)
+        #expect(MCPServerConfig(name: "a", transport: .sse, url: "https://x.test/sse").validationError(otherNames: []) == nil)
+    }
+
+    @Test func parseArgsSplitsLinesAndDropsBlanks() {
+        #expect(MCPServerConfig.parseArgs("-y\n  pkg \n\n/tmp\n") == ["-y", "pkg", "/tmp"])
+    }
+
+    @Test func importClaudeDesktopConfig() throws {
+        let json = """
+        {"mcpServers": {
+          "files": {"command": "npx", "args": ["-y", "srv"], "env": {"A": "1"}},
+          "remote": {"url": "https://x.test/mcp", "headers": {"Authorization": "Bearer t"}},
+          "legacy": {"url": "https://x.test/sse"},
+          "off": {"command": "x", "disabled": true},
+          "junk": 5
+        }}
+        """
+        let servers = try MCPServerConfig.parseImport(json)
+        let byName = Dictionary(uniqueKeysWithValues: servers.map { ($0.name, $0) })
+        #expect(byName.count == 4)
+        #expect(byName["files"]?.transport == .stdio)
+        #expect(byName["files"]?.args == ["-y", "srv"])
+        #expect(byName["remote"]?.transport == .http)
+        #expect(byName["remote"]?.headers.first?.key == "Authorization")
+        #expect(byName["legacy"]?.transport == .sse)
+        #expect(byName["off"]?.enabled == false)
+    }
+
+    @Test func importRejectsGarbage() {
+        #expect(throws: MCPImportError.self) { try MCPServerConfig.parseImport("not json") }
+        #expect(throws: MCPImportError.self) { try MCPServerConfig.parseImport("{\"mcpServers\": {}}") }
     }
 }

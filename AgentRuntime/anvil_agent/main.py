@@ -307,7 +307,7 @@ class AnvilRuntime:
         await self._hooks_engine.run(HookEvent.SESSION_END, {})
         if self._gateway:
             await self._gateway.stop()
-        await self._mcp_client.stop_all()
+        await self._mcp_client.stop_all(self._tool_registry)
         await self._team_manager.stop_all()
         await self._search_db.close()
         await self._ollama.stop()
@@ -519,6 +519,10 @@ class AnvilRuntime:
         self._ipc.register_method("system.info", self._handle_system_info)
         self._ipc.register_method("system.stats", self._handle_system_stats)
         self._ipc.register_method("system.recommend_models", self._handle_recommend_models)
+        self._ipc.register_method("mcp.list", self._handle_mcp_list)
+        self._ipc.register_method("mcp.save", self._handle_mcp_save)
+        self._ipc.register_method("mcp.test", self._handle_mcp_test)
+        self._ipc.register_method("mcp.reload", self._handle_mcp_reload)
         self._ipc.register_method("settings.get", self._handle_settings_get)
         self._ipc.register_method("settings.set", self._handle_settings_set)
         self._ipc.register_method("planning.start", self._handle_planning_start)
@@ -1271,6 +1275,36 @@ class AnvilRuntime:
             return {"status": "ok"}
         except Exception as e:
             return {"error": str(e)}
+
+    # ── MCP Handlers ─────────────────────────────────────────────
+
+    async def _handle_mcp_list(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        return {"servers": self._mcp_client.list_servers()}
+
+    async def _handle_mcp_save(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        """Persist the full server list and reconnect (``reload: false`` to only write the file)."""
+        try:
+            self._mcp_client.write_servers(params.get("servers") or [])
+        except (ValueError, OSError) as e:
+            return {"error": str(e)}
+        if params.get("reload", True):
+            await self._mcp_client.reload(self._tool_registry)
+        return {"servers": self._mcp_client.list_servers()}
+
+    async def _handle_mcp_test(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        return await self._mcp_client.test_server(params.get("server") or {})
+
+    async def _handle_mcp_reload(
+        self, params: dict[str, Any], writer: Any
+    ) -> dict[str, Any]:
+        await self._mcp_client.reload(self._tool_registry)
+        return {"servers": self._mcp_client.list_servers()}
 
     # ── Git Handlers ─────────────────────────────────────────────
 
