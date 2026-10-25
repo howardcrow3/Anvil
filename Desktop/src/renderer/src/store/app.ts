@@ -6,7 +6,8 @@ import type { ConnectionState } from '@/lib/rpc'
 import type { ChatEvent, ModelInfo, SessionMeta } from '@/lib/types'
 import { addUserMessage, applyEvent, fromHistory, initialChat, type ChatState } from './chatState'
 
-export type SettingsTab = 'general' | 'apikey' | 'permissions' | 'mcp'
+export type SettingsTab = 'general' | 'apikey' | 'endpoints' | 'permissions' | 'mcp'
+export type View = 'chat' | 'projects' | 'kanban' | 'teams' | 'skills'
 export type Theme = 'system' | 'light' | 'dark'
 
 interface AppStore {
@@ -19,6 +20,7 @@ interface AppStore {
   planning: boolean
   chat: ChatState
   notice: string | null
+  view: View
   settingsOpen: boolean
   settingsTab: SettingsTab
   theme: Theme
@@ -35,6 +37,7 @@ interface AppStore {
   cancel(): Promise<void>
   togglePlanning(): Promise<void>
   respondPermission(approved: boolean): Promise<void>
+  setView(view: View): void
   openSettings(tab?: SettingsTab): void
   closeSettings(): void
   setTheme(theme: Theme): void
@@ -67,6 +70,7 @@ export const useApp = create<AppStore>((set, get) => ({
   planning: false,
   chat: initialChat,
   notice: null,
+  view: 'chat',
   settingsOpen: false,
   settingsTab: 'general',
   theme: readTheme(),
@@ -159,14 +163,14 @@ export const useApp = create<AppStore>((set, get) => ({
 
   newChat() {
     if (get().chat.streaming) return
-    set({ currentSessionId: null, chat: initialChat, planning: false })
+    set({ currentSessionId: null, chat: initialChat, planning: false, view: 'chat' })
   },
 
   async openSession(id) {
     if (get().chat.streaming) return
     try {
       const result = await call<{ messages: { role: string; content: string }[] }>('session.resume', { session_id: id })
-      set({ currentSessionId: id, chat: { ...initialChat, messages: fromHistory(result.messages ?? []) } })
+      set({ currentSessionId: id, view: 'chat', chat: { ...initialChat, messages: fromHistory(result.messages ?? []) } })
     } catch (e) {
       set({ notice: `Couldn't open that session: ${message(e)}` })
     }
@@ -219,6 +223,7 @@ export const useApp = create<AppStore>((set, get) => ({
     }
   },
 
+  setView: (view) => set({ view }),
   openSettings: (tab) => set({ settingsOpen: true, settingsTab: tab ?? get().settingsTab }),
   closeSettings: () => set({ settingsOpen: false }),
   setTheme(theme) {

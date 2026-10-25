@@ -3,6 +3,10 @@ import { bridge } from '@/lib/bridge'
 import { useApp } from '@/store/app'
 import { ChatView } from './components/ChatView'
 import { Sidebar } from './components/Sidebar'
+import { KanbanView } from './views/KanbanView'
+import { ProjectsView } from './views/ProjectsView'
+import { SkillsView } from './views/SkillsView'
+import { TeamsView } from './views/TeamsView'
 import { SettingsDialog } from './settings/SettingsDialog'
 
 function Banner(): React.JSX.Element | null {
@@ -42,6 +46,7 @@ function Banner(): React.JSX.Element | null {
 export default function App(): React.JSX.Element {
   const init = useApp((s) => s.init)
   const settingsOpen = useApp((s) => s.settingsOpen)
+  const view = useApp((s) => s.view)
 
   useEffect(() => {
     document.body.classList.add(`platform-${bridge()?.platform ?? 'web'}`)
@@ -53,7 +58,11 @@ export default function App(): React.JSX.Element {
       <Sidebar />
       <div className="main-col">
         <Banner />
-        <ChatView />
+        {view === 'chat' && <ChatView />}
+        {view === 'projects' && <ProjectsView />}
+        {view === 'kanban' && <KanbanView />}
+        {view === 'teams' && <TeamsView />}
+        {view === 'skills' && <SkillsView />}
       </div>
       {settingsOpen && <SettingsDialog />}
     </div>

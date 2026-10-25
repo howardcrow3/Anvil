@@ -42,9 +42,26 @@ run `npx playwright install chromium` once. Screenshots land in `e2e/shots/`.
 - The runtime exits if the app that launched it dies (`--exit-on-stdin-eof`).
 - External links open in the system browser; `http(s)` and `mailto:` only.
 
+## Packaging
+
+```bash
+npm run pack   # unpacked app in dist/ (quick check)
+npm run dist   # installers: .dmg/.zip (macOS), NSIS (Windows), AppImage (Linux)
+```
+
+`npm run bundle:runtime` (run by both) downloads a pinned, checksum-verified standalone CPython
+(python-build-standalone) and installs the agent runtime into `build/runtime/`; electron-builder ships that
+folder as `resources/runtime`, which is where the packaged app looks for its Python. It must run on the OS and
+architecture you are packaging for, so build each platform on its own runner.
+
+Not set up yet: app icons (the Electron default is used), macOS signing/notarization (set `CSC_LINK`,
+`CSC_KEY_PASSWORD` and the `APPLE_*` variables), auto-update, and a bundled Ollama.
+`npm run pack` was verified on Linux x64 only: the packaged app launched its bundled Python and connected.
+The macOS and Windows targets are configured but untested.
+
 ## Status
 
-Ported from the SwiftUI app: chat (streaming markdown, tool calls, permission prompts, plan mode), sessions,
-model selection, and settings (general, API key, permissions, MCP). Still to port: teams, projects/kanban,
-skills browser, agents view, gateway/endpoints/hooks/system/update settings, onboarding and model download,
-git and file panels. Packaging (bundled Python + Ollama, installers, auto-update) is not set up yet.
+Ported from the SwiftUI app (which has been removed): chat (streaming markdown, tool calls, permission
+prompts, plan mode), sessions, model selection, settings (general, API key, custom endpoints, permissions,
+MCP), projects, kanban, teams and skills. Still to port: agents view, gateway/hooks/system/update settings,
+onboarding and model download, git and file panels.

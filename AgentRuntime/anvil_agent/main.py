@@ -373,20 +373,7 @@ class AnvilRuntime:
                 provider = ClaudeProvider(model=model_id, api_key=api_key)
                 self._router.register(model_id, provider, provider_type="cloud")
 
-        # Register custom endpoints from settings
-        for ep in self._settings.get("endpoints") or []:
-            ep_name = ep.get("name", "")
-            ep_model = ep.get("default_model", ep_name)
-            ep_url = ep.get("base_url", "")
-            ep_key = ep.get("api_key", "")
-            if ep_url:
-                provider = OpenAIProvider(
-                    model=ep_model,
-                    api_key=ep_key or None,
-                    base_url=ep_url,
-                )
-                model_id = f"custom:{ep_name}" if ep_name else ep_model
-                self._router.register(model_id, provider, provider_type="custom")
+        self._register_endpoints()
 
         # CLI --provider override for backwards compatibility
         if self._args.provider == "openai":
@@ -532,6 +519,18 @@ class AnvilRuntime:
         await self._broadcast("curator.report", report)
         return report
 
+    def _register_endpoints(self) -> None:
+        """(Re)register custom OpenAI-compatible endpoints from settings."""
+        for ep in self._settings.get("endpoints") or []:
+            ep_name = ep.get("name", "")
+            ep_model = ep.get("default_model", ep_name)
+            ep_url = ep.get("base_url", "")
+            ep_key = ep.get("api_key", "")
+            if ep_url:
+                provider = OpenAIProvider(model=ep_model, api_key=ep_key or None, base_url=ep_url)
+                model_id = f"custom:{ep_name}" if ep_name else ep_model
+                self._router.register(model_id, provider, provider_type="custom")
+
     def _register_ipc_methods(self) -> None:
         self._ipc.register_method("chat.send", self._handle_chat_send)
         self._ipc.register_method("chat.cancel", self._handle_chat_cancel)
@@ -541,6 +540,7 @@ class AnvilRuntime:
         self._ipc.register_method("model.list", self._handle_model_list)
         self._ipc.register_method("model.select", self._handle_model_select)
         self._ipc.register_method("team.create", self._handle_team_create)
+        self._ipc.register_method("team.list", self._handle_team_list)
         self._ipc.register_method("team.status", self._handle_team_status)
         self._ipc.register_method("team.spawn", self._handle_team_spawn)
         self._ipc.register_method("team.stop_teammate", self._handle_team_stop_teammate)
@@ -858,6 +858,9 @@ class AnvilRuntime:
             )
         return {"team_id": team_id}
 
+    async def _handle_team_list(self, params: dict[str, Any], writer: Any) -> list[dict[str, Any]]:
+        return self._team_manager.list_teams()
+
     async def _handle_team_status(
         self, params: dict[str, Any], writer: Any
     ) -> dict[str, Any]:
@@ -1024,6 +1027,8 @@ class AnvilRuntime:
                 except ValueError:
                     return {"error": f"Unknown permission mode: {value!r}"}
             self._settings.set(key, value)
+            if key == "endpoints":
+                self._register_endpoints()
 
             # When API key is set, auto-register cloud models and create agent loop
             if key == "api_key" and value:

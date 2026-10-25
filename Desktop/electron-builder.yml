@@ -1,0 +1,36 @@
+appId: com.anvil.desktop
+productName: Anvil
+copyright: Copyright © Anvil
+directories:
+  output: dist
+  buildResources: build-resources
+files:
+  - out/**
+  - package.json
+extraResources:
+  # Produced by `npm run bundle:runtime` (standalone Python + the agent runtime).
+  - from: build/runtime
+    to: runtime
+    filter:
+      - '**/*'
+asar: true
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  # Set CSC_LINK / CSC_KEY_PASSWORD (and APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID) to sign and notarize.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build-resources/entitlements.mac.plist
+  entitlementsInherit: build-resources/entitlements.mac.plist
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+linux:
+  category: Development
+  target:
+    - AppImage

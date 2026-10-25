@@ -4,14 +4,19 @@
   "private": true,
   "description": "Anvil \u2014 cross-platform desktop UI (Electron + React)",
   "main": "out/main/index.js",
-  "author": "Anvil",
+  "author": {
+    "name": "Anvil"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "dev:web": "vite build -c vite.web.config.ts && vite preview -c vite.web.config.ts"
+    "dev:web": "vite build -c vite.web.config.ts && vite preview -c vite.web.config.ts",
+    "bundle:runtime": "node scripts/bundle-runtime.mjs",
+    "pack": "npm run build && npm run bundle:runtime && electron-builder --dir",
+    "dist": "npm run build && npm run bundle:runtime && electron-builder"
   },
   "dependencies": {
     "react": "^19.0.0",
@@ -34,5 +39,6 @@
     "typescript": "~5.9.0",
     "vite": "^8.0.0",
     "vitest": "^5.0.0"
-  }
+  },
+  "homepage": "https://github.com/howardcrow3/Anvil"
 }
