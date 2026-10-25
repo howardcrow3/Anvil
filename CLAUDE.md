@@ -1,21 +1,21 @@
 # Anvil Project
 
-macOS desktop AI agent app built with SwiftUI (frontend) and Python (agent runtime).
+Cross-platform desktop AI agent app: Electron + React front end and a Python agent runtime.
+(The original SwiftUI macOS app was removed; it remains in git history before the "Remove SwiftUI app" commit.)
 
 ## Project Structure
-- `Anvil/` - SwiftUI macOS app (Swift Package Manager)
+- `Desktop/` - Electron + React app (electron-vite, zustand, vitest, Playwright)
 - `AgentRuntime/` - Python agent runtime
-- `Scripts/` - Build and packaging scripts
-- `Resources/` - App icons, default configs, Info.plist
+- `Scripts/` - Helper scripts
+- `Resources/` - Icons, default configs
 
 ## Build Commands
-- Swift app: `cd Anvil && swift build`
 - Python runtime: `cd AgentRuntime && pip install -e .`
-- Full dev run: `./Scripts/run-dev.sh`
-- Package DMG: `./Scripts/package-dmg.sh`
+- Python tests: `cd AgentRuntime && python -m pytest --ignore=tests/test_build_install.py`
+- Desktop dev: `cd Desktop && npm ci && npm run dev`
+- Desktop checks: `npm run typecheck && npm test && npm run test:e2e`
 
 ## Key Conventions
-- Swift: Use @Observable macro, async/await, SwiftUI NavigationSplitView
 - Python: Use Pydantic v2, asyncio, type hints everywhere
-- IPC: Unix domain socket at /tmp/anvil-agent.sock with JSON-RPC 2.0
+- IPC: JSON-RPC 2.0 over a localhost WebSocket (token via env ANVIL_WS_TOKEN); a Unix socket is optional
 - All tools shared between Claude and local model paths
