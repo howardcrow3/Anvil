@@ -27,9 +27,9 @@ class TestModelCatalog:
         assert len(ids) == len(set(ids)), "Duplicate model IDs found"
 
     def test_get_model_by_id_found(self):
-        model = get_model_by_id("gemma3:4b")
+        model = get_model_by_id("gemma4:e4b")
         assert model is not None
-        assert model.name == "Gemma 3 4B"
+        assert model.name == "Gemma 4 E4B"
         assert model.provider == "google"
 
     def test_get_model_by_id_not_found(self):
@@ -58,6 +58,6 @@ class TestModelCatalog:
         clouds = get_cloud_models()
         assert len(clouds) == 3
         ids = [c["id"] for c in clouds]
-        assert "claude-opus-4-6" in ids
-        assert "claude-sonnet-4-6" in ids
+        assert "claude-opus-5-5" in ids
+        assert "claude-sonnet-5-5" in ids
         assert all(c["supports_tools"] for c in clouds)

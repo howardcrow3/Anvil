@@ -58,6 +58,31 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         context_window=262144,
         ollama_tag="gemma4:27b",
     ),
+    # Nous Research Hermes (hybrid reasoning, <tool_call> function calling)
+    ModelCatalogEntry(
+        id="hermes3:8b",
+        name="Hermes 3 8B",
+        provider="nousresearch",
+        parameters="8B",
+        min_ram_gb=6,
+        description="Nous Research Hermes 3 (Llama 3.1 base), official Ollama build",
+        best_for="Agentic tool use on 8GB Macs",
+        supports_tools=True,
+        context_window=131072,
+        ollama_tag="hermes3:8b",
+    ),
+    ModelCatalogEntry(
+        id="hermes4.3:36b",
+        name="Hermes 4.3 36B",
+        provider="nousresearch",
+        parameters="36B",
+        min_ram_gb=28,
+        description="Nous Hermes 4.3 (Seed-OSS 36B base), hybrid reasoning + tool use; Q4_K_M via Hugging Face GGUF",
+        best_for="Top local agent quality, 32GB+ Macs",
+        supports_tools=True,
+        context_window=65536,
+        ollama_tag="hf.co/bartowski/NousResearch_Hermes-4.3-36B-GGUF:Q4_K_M",
+    ),
     # Other models
     ModelCatalogEntry(
         id="qwen3:8b",
@@ -134,27 +159,40 @@ def get_cloud_models() -> list[dict]:
     """Return the list of Claude cloud models available via Anthropic API."""
     return [
         {
-            "id": "claude-opus-4-6",
-            "name": "Claude Opus 4.6",
+            "id": "claude-opus-5-5",
+            "name": "Claude Opus 5.5",
             "provider": "anthropic",
             "description": "Most capable Claude model for complex tasks",
             "context_window": 200000,
             "supports_tools": True,
         },
         {
-            "id": "claude-sonnet-4-6",
-            "name": "Claude Sonnet 4.6",
+            "id": "claude-sonnet-5-5",
+            "name": "Claude Sonnet 5.5",
             "provider": "anthropic",
             "description": "Balanced performance and speed",
             "context_window": 200000,
             "supports_tools": True,
         },
         {
-            "id": "claude-haiku-4-5-20251001",
-            "name": "Claude Haiku 4.5",
+            "id": "claude-haiku-5-5",
+            "name": "Claude Haiku 5.5",
             "provider": "anthropic",
             "description": "Fastest Claude model for simple tasks",
             "context_window": 200000,
             "supports_tools": True,
         },
     ]
+
+
+def lookup_context_window(model: str | None) -> int | None:
+    """Context window (tokens) for a catalog, cloud or Ollama-tag model id; None if unknown."""
+    if not model:
+        return None
+    for entry in MODEL_CATALOG:
+        if model in (entry.id, entry.ollama_tag):
+            return entry.context_window
+    for cloud in get_cloud_models():
+        if cloud["id"] == model:
+            return cloud["context_window"]
+    return None

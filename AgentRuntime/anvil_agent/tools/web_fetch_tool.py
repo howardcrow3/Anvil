@@ -12,6 +12,8 @@ from anvil_agent.tools.base import Tool
 
 
 class WebFetchTool(Tool):
+
+    defer = True
     name = "web_fetch"
     description = "Fetch a web page and return its text content."
     requires_approval = False

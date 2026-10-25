@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 class WebSearchTool(Tool):
+
+    defer = True
     name = "web_search"
     description = "Search the web for information using DuckDuckGo."
     requires_approval = False

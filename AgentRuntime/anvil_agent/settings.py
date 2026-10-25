@@ -20,7 +20,7 @@ class AnvilSettings(BaseModel):
     """Persisted settings for the Anvil agent runtime."""
 
     api_key: str = ""
-    default_model: str = "claude-sonnet-4-20250514"
+    default_model: str = "claude-sonnet-5-5"
     default_provider: str = "claude"
     permission_mode: str = "ask"
     ollama_port: int = 11434
@@ -28,6 +28,12 @@ class AnvilSettings(BaseModel):
     mcp_servers: list[dict[str, Any]] = Field(default_factory=list)
     tool_allow_list: list[str] = Field(default_factory=list)
     tool_deny_list: list[str] = Field(default_factory=list)
+    tool_search: str = "auto"  # auto | on | off: progressive tool disclosure
+    subagent_max_concurrent: int = 4
+    kanban_max_workers: int = 2
+    learning_review_enabled: bool = True
+    curator_enabled: bool = True
+    curator_consolidate: bool = False
 
 
 class SettingsManager:

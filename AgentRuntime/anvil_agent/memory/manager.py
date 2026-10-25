@@ -128,8 +128,10 @@ class MemoryManager:
 
     def save_memory(self, topic: str, content: str) -> None:
         """Save a memory to a topic file."""
+        from anvil_agent.redact import redact
+
         path = self._global_dir / f"{topic}.md"
-        path.write_text(content, encoding="utf-8")
+        path.write_text(redact(content), encoding="utf-8")
         logger.info("Saved memory to %s", path)
 
     def load_topic(self, topic: str) -> str | None:

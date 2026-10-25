@@ -15,6 +15,9 @@ class Tool(ABC):
     description: str
     parameters: dict[str, Any]  # JSON Schema
     requires_approval: bool = False
+    # Rarely used tools can be hidden behind tool_search/tool_describe/tool_call to keep the
+    # per-request tool schema small. See anvil_agent/tools/tool_search.py.
+    defer: bool = False
 
     @abstractmethod
     async def execute(self, arguments: dict[str, Any]) -> ToolResult:

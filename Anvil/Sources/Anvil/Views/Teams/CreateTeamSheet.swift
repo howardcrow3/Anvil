@@ -4,7 +4,7 @@ struct TeammateSpec: Identifiable {
     let id = UUID()
     var name: String = ""
     var role: String = "general"
-    var model: String = "claude-sonnet-4-6"
+    var model: String = "claude-sonnet-5-5"
 }
 
 struct TaskSpec: Identifiable {
@@ -20,7 +20,7 @@ struct CreateTeamSheet: View {
 
     @State private var teamName = ""
     @State private var teammates: [TeammateSpec] = [
-        TeammateSpec(name: "coder", role: "implementation", model: "claude-sonnet-4-6")
+        TeammateSpec(name: "coder", role: "implementation", model: "claude-sonnet-5-5")
     ]
     @State private var tasks: [TaskSpec] = []
 

@@ -40,7 +40,7 @@ struct SettingsView: View {
             UpdatesSettingsTab()
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
         }
-        .frame(width: 550, height: 400)
+        .frame(width: 620, height: 480)
         .onAppear { settingsVM.loadSettings() }
     }
 }
@@ -114,32 +114,6 @@ struct PermissionsSettingsTab: View {
             }
 
             Button("Save") { settingsVM.saveSettings() }
-        }
-        .formStyle(.grouped)
-        .padding()
-    }
-}
-
-struct MCPSettingsTab: View {
-    @Environment(SettingsViewModel.self) private var settingsVM
-
-    var body: some View {
-        Form {
-            if settingsVM.settings.mcpServers.isEmpty {
-                Text("No MCP servers configured.")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(settingsVM.settings.mcpServers) { server in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(server.name).fontWeight(.medium)
-                            Text(server.command).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Toggle("", isOn: .constant(server.enabled))
-                    }
-                }
-            }
         }
         .formStyle(.grouped)
         .padding()

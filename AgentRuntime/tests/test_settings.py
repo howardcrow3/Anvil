@@ -24,7 +24,7 @@ class TestAnvilSettings:
     def test_defaults(self):
         s = AnvilSettings()
         assert s.api_key == ""
-        assert s.default_model == "claude-sonnet-4-20250514"
+        assert s.default_model == "claude-sonnet-5-5"
         assert s.default_provider == "claude"
         assert s.permission_mode == "ask"
         assert s.ollama_port == 11434
@@ -41,7 +41,7 @@ class TestAnvilSettings:
 
 class TestSettingsManager:
     def test_get_default(self, manager: SettingsManager):
-        assert manager.get("default_model") == "claude-sonnet-4-20250514"
+        assert manager.get("default_model") == "claude-sonnet-5-5"
 
     def test_get_nonexistent(self, manager: SettingsManager):
         assert manager.get("nonexistent_key") is None

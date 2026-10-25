@@ -5,12 +5,12 @@ struct ContentView: View {
     @Environment(ModelViewModel.self) private var modelVM
     @Environment(ProjectViewModel.self) private var projectVM
     @Environment(SessionViewModel.self) private var sessionVM
+    @Environment(AgentActivityViewModel.self) private var agentsVM
     @State private var showTerminal = false
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var selectedTab: SidebarTab = .sessions
 
     var body: some View {
-        @Bindable var vm = chatVM
 
         VStack(spacing: 0) {
             topBar
@@ -38,8 +38,17 @@ struct ContentView: View {
                 columnVisibility = columnVisibility == .all ? .detailOnly : .all
             }
         }
-        .sheet(item: $vm.pendingPermission) { request in
-            PermissionRequestView(request: request)
+        .sheet(item: Binding(
+            get: { chatVM.pendingPermission ?? agentsVM.pendingPermissions.first },
+            set: { _ in }
+        )) { request in
+            PermissionRequestView(request: request) { approved in
+                if request.source == nil {
+                    await chatVM.respondToPermission(approved: approved)
+                } else {
+                    await agentsVM.respond(to: request, approved: approved)
+                }
+            }
         }
     }
 
@@ -257,8 +266,7 @@ struct ContentView: View {
 
 struct PermissionRequestView: View {
     let request: PermissionRequest
-    @Environment(ChatViewModel.self) private var chatVM
-    @Environment(\.dismiss) private var dismiss
+    let onDecision: (Bool) async -> Void
 
     var body: some View {
         VStack(spacing: 16) {
@@ -268,6 +276,14 @@ struct PermissionRequestView: View {
                     .foregroundStyle(.orange)
                 Text("Permission Required")
                     .font(.headline)
+            }
+
+            if let source = request.source {
+                Label(source, systemImage: "person.2.wave.2")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -305,20 +321,14 @@ struct PermissionRequestView: View {
 
             HStack(spacing: 12) {
                 Button("Deny") {
-                    Task {
-                        await chatVM.respondToPermission(approved: false)
-                        dismiss()
-                    }
+                    Task { await onDecision(false) }
                 }
                 .keyboardShortcut(.escape)
 
                 Spacer()
 
                 Button("Allow") {
-                    Task {
-                        await chatVM.respondToPermission(approved: true)
-                        dismiss()
-                    }
+                    Task { await onDecision(true) }
                 }
                 .keyboardShortcut(.return)
                 .buttonStyle(.borderedProminent)

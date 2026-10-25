@@ -75,7 +75,7 @@ class TeamManager:
         socket_path: str,
         project_dir: str,
         name: str = "",
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-sonnet-5-5",
         provider: str = "claude",
     ) -> str:
         """Spawn a new agent process as a teammate."""

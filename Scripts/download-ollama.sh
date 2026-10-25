@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 OLLAMA_DIR="$PROJECT_ROOT/Resources/ollama"
-OLLAMA_VERSION="${OLLAMA_VERSION:-v0.22.1}"
+OLLAMA_VERSION="${OLLAMA_VERSION:-v0.40.10}"
 
 echo "=== Downloading Ollama ${OLLAMA_VERSION} for macOS ==="
 
