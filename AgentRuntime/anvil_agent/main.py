@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
+import secrets
 import signal
 import sys
 import tempfile
@@ -69,6 +71,27 @@ def parse_args() -> argparse.Namespace:
         "--socket-path",
         default=tempfile.mktemp(prefix="anvil_", suffix=".sock"),
         help="Unix socket path for IPC",
+    )
+    parser.add_argument(
+        "--no-socket",
+        action="store_true",
+        help="Do not listen on a Unix socket (use with --ws-port, e.g. on Windows)",
+    )
+    parser.add_argument(
+        "--ws-port",
+        type=int,
+        default=None,
+        help="Also serve JSON-RPC over a local WebSocket on this port (0 = pick a free port)",
+    )
+    parser.add_argument(
+        "--exit-on-stdin-eof",
+        action="store_true",
+        help="Shut down when stdin closes, i.e. when the launching app exits or crashes",
+    )
+    parser.add_argument(
+        "--ws-origins",
+        default=None,
+        help="Comma-separated browser Origins allowed to connect to the WebSocket",
     )
     parser.add_argument(
         "--project-dir",
@@ -140,7 +163,7 @@ class AnvilRuntime:
         )
         self._ollama = OllamaService()
         self._perf_monitor = PerformanceMonitor()
-        self._ipc = IPCServer(args.socket_path)
+        self._ipc = IPCServer(None if args.no_socket else args.socket_path)
 
         # Permissions
         perm_mode_str = self._settings.get("permission_mode") or "ask"
@@ -270,9 +293,21 @@ class AnvilRuntime:
         # Start IPC server
         await self._ipc.start()
 
-        # Signal socket path immediately so Swift app can connect
+        # Signal readiness immediately so the UI can connect
         # while we continue with non-essential setup (gateway, hooks)
-        print(f"SOCKET:{self._args.socket_path}", flush=True)
+        if not self._args.no_socket:
+            print(f"SOCKET:{self._args.socket_path}", flush=True)
+        if self._args.ws_port is not None:
+            # The token comes from the launcher's environment (not argv, which other local users can
+            # read); generate one if the runtime was started by hand.
+            token = os.environ.get("ANVIL_WS_TOKEN") or secrets.token_urlsafe(32)
+            origins = (
+                frozenset(o.strip() for o in self._args.ws_origins.split(",") if o.strip())
+                if self._args.ws_origins
+                else None
+            )
+            port = await self._ipc.start_websocket(token, port=self._args.ws_port, allowed_origins=origins)
+            print("WS_READY:" + json.dumps({"port": port, "token": token}), flush=True)
 
         # Start gateway if configured
         if self._gateway_config:
@@ -296,7 +331,11 @@ class AnvilRuntime:
         # Run hooks
         await self._hooks_engine.run(HookEvent.SESSION_START, {})
 
-        logger.info("Anvil runtime started (socket: %s)", self._args.socket_path)
+        logger.info(
+            "Anvil runtime started (socket: %s, ws: %s)",
+            None if self._args.no_socket else self._args.socket_path,
+            self._args.ws_port,
+        )
 
     async def stop(self) -> None:
         """Gracefully shut down the runtime."""
@@ -979,6 +1018,11 @@ class AnvilRuntime:
         if not key:
             return {"error": "No key provided"}
         try:
+            if key == "permission_mode":
+                try:
+                    self._permission_manager.mode = PermissionMode(value)
+                except ValueError:
+                    return {"error": f"Unknown permission mode: {value!r}"}
             self._settings.set(key, value)
 
             # When API key is set, auto-register cloud models and create agent loop
@@ -1410,6 +1454,21 @@ class AnvilRuntime:
         return {"status": "ok"} if ok else {"error": "Task not found"}
 
 
+def _exit_when_stdin_closes(loop: asyncio.AbstractEventLoop, shutdown_event: asyncio.Event) -> None:
+    """Orphan protection: a launcher keeps our stdin open, so EOF means it is gone (works on Windows too)."""
+    import threading
+
+    def watch() -> None:
+        try:
+            while sys.stdin.buffer.read(4096):
+                pass
+        except (OSError, ValueError):
+            pass
+        loop.call_soon_threadsafe(shutdown_event.set)
+
+    threading.Thread(target=watch, name="stdin-watch", daemon=True).start()
+
+
 async def async_main() -> None:
     args = parse_args()
 
@@ -1429,9 +1488,15 @@ async def async_main() -> None:
         shutdown_event.set()
 
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, signal_handler)
+        try:
+            loop.add_signal_handler(sig, signal_handler)
+        except NotImplementedError:  # Windows: asyncio has no add_signal_handler
+            signal.signal(sig, lambda *_: loop.call_soon_threadsafe(shutdown_event.set))
 
     await runtime.start()
+
+    if args.exit_on_stdin_eof:
+        _exit_when_stdin_closes(loop, shutdown_event)
 
     await shutdown_event.wait()
     await runtime.stop()
