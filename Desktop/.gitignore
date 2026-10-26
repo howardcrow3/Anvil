@@ -5,3 +5,5 @@ test-results
 e2e/.state.json
 e2e/shots
 *.tsbuildinfo
+build/
+dist/

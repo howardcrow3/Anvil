@@ -177,3 +177,15 @@ class TestMailbox:
         team_id = await manager.create_team("Empty Msg", [])
         msgs = manager.read_messages(team_id, "agent")
         assert msgs == []
+
+
+class TestListTeams:
+    @pytest.mark.asyncio
+    async def test_list_teams_newest_first(self, manager: TeamManager):
+        a = await manager.create_team("A", [{"name": "x"}])
+        b = await manager.create_team("B", [])
+        (manager._teams_dir / "junk.json").write_text("not json")
+        teams = manager.list_teams()
+        assert {t["id"] for t in teams} == {a, b}
+        assert teams[0]["name"] == "B"
+        assert teams[0]["members"] == []

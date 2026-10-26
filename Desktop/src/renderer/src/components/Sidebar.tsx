@@ -1,4 +1,12 @@
-import { useApp } from '@/store/app'
+import { useApp, type View } from '@/store/app'
+
+const NAV: { id: View; label: string }[] = [
+  { id: 'chat', label: 'Chat' },
+  { id: 'projects', label: 'Projects' },
+  { id: 'kanban', label: 'Kanban' },
+  { id: 'teams', label: 'Teams' },
+  { id: 'skills', label: 'Skills' }
+]
 
 export function Sidebar(): React.JSX.Element {
   const sessions = useApp((s) => s.sessions)
@@ -8,6 +16,8 @@ export function Sidebar(): React.JSX.Element {
   const openSettings = useApp((s) => s.openSettings)
   const connection = useApp((s) => s.connection)
   const busy = useApp((s) => s.chat.streaming)
+  const view = useApp((s) => s.view)
+  const setView = useApp((s) => s.setView)
 
   return (
     <aside className="sidebar">
@@ -16,6 +26,13 @@ export function Sidebar(): React.JSX.Element {
           + New chat
         </button>
       </div>
+      <nav className="mainnav" aria-label="Sections">
+        {NAV.map((n) => (
+          <button key={n.id} className={`navitem ${view === n.id ? 'active' : ''}`} aria-current={view === n.id ? 'page' : undefined} onClick={() => setView(n.id)}>
+            {n.label}
+          </button>
+        ))}
+      </nav>
       <nav className="sessions" aria-label="Sessions">
         {sessions.length === 0 && <div className="muted pad">No sessions yet.</div>}
         {sessions.map((s) => (

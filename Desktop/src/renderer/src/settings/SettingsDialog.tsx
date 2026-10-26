@@ -1,6 +1,7 @@
 import { Modal } from '@/components/Modal'
 import { useApp, type SettingsTab } from '@/store/app'
 import { ApiKeySettings } from './ApiKeySettings'
+import { EndpointSettings } from './EndpointSettings'
 import { GeneralSettings } from './GeneralSettings'
 import { McpSettings } from './McpSettings'
 import { PermissionSettings } from './PermissionSettings'
@@ -8,6 +9,7 @@ import { PermissionSettings } from './PermissionSettings'
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'apikey', label: 'API Key' },
+  { id: 'endpoints', label: 'Endpoints' },
   { id: 'permissions', label: 'Permissions' },
   { id: 'mcp', label: 'MCP' }
 ]
@@ -29,6 +31,7 @@ export function SettingsDialog(): React.JSX.Element {
         <div className="tab-panel" role="tabpanel">
           {tab === 'general' && <GeneralSettings />}
           {tab === 'apikey' && <ApiKeySettings />}
+          {tab === 'endpoints' && <EndpointSettings />}
           {tab === 'permissions' && <PermissionSettings />}
           {tab === 'mcp' && <McpSettings />}
         </div>

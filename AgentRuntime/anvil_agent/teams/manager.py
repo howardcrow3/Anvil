@@ -180,6 +180,18 @@ class TeamManager:
             "teammate": meta,
         })
 
+    def list_teams(self) -> list[dict[str, Any]]:
+        """Summaries of all teams on disk, newest first."""
+        out: list[dict[str, Any]] = []
+        for path in self._teams_dir.glob("*.json"):
+            try:
+                team = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            if isinstance(team, dict) and team.get("id"):
+                out.append({k: team.get(k) for k in ("id", "name", "status", "created_at", "members")})
+        return sorted(out, key=lambda t: str(t.get("created_at") or ""), reverse=True)
+
     async def get_status(self, team_id: str) -> dict[str, Any]:
         """Get the status of a team."""
         path = self._teams_dir / f"{team_id}.json"
