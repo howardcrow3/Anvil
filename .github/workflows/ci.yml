@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -35,13 +35,21 @@ jobs:
           npm run typecheck
           npm test
           npm run build
+      - name: Install Playwright browser
+        working-directory: Desktop
+        run: npx playwright install --with-deps chromium
       - name: End-to-end
         working-directory: Desktop
         env:
           ANVIL_RUNTIME_DIR: ${{ github.workspace }}/AgentRuntime
-        run: |
-          npx playwright install --with-deps chromium
-          xvfb-run -a npm run test:e2e
+        run: xvfb-run -a npm run test:e2e
+      - name: Keep e2e failure output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: Desktop/test-results
+          if-no-files-found: ignore
 
   installers:
     needs: test
@@ -54,7 +62,7 @@ jobs:
           - { os: macos-14, name: mac-arm64, args: --mac --arm64 }
           - { os: macos-15-intel, name: mac-x64, args: --mac --x64 }
           - { os: windows-latest, name: windows-x64, args: --win --x64 }
-          - { os: ubuntu-latest, name: linux-x64, args: --linux --x64 }
+          - { os: ubuntu-24.04, name: linux-x64, args: --linux --x64 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
