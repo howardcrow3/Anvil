@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { cpSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
@@ -80,7 +80,8 @@ if (sha256(archive) !== expected) {
 
 rmSync(out, { recursive: true, force: true })
 mkdirSync(out, { recursive: true })
-run('tar', ['-xzf', archive, '-C', out]) // extracts to out/python
+// Relative paths with cwd=desktop: GNU tar (Git for Windows) reads "C:\\..." as host:file and fails.
+run('tar', ['-xzf', relative(desktop, archive).split(sep).join('/'), '-C', relative(desktop, out).split(sep).join('/')], { cwd: desktop }) // extracts to out/python
 const python = platform === 'win32' ? join(out, 'python', 'python.exe') : join(out, 'python', 'bin', 'python3')
 
 const site = join(out, 'site')
