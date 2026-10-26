@@ -48,6 +48,7 @@ jobs:
         run: |
           export HOME=$(mktemp -d) ANVIL_PROJECT_DIR=$HOME
           (timeout 25 xvfb-run -a npx electron --no-sandbox . 2>&1 || true) | grep -v dbus | head -20 | while IFS= read -r l; do echo "::error::DIAG $l"; done
+          find "$HOME" -maxdepth 4 -not -path '*/.npm/*' | head -30 | while IFS= read -r l; do echo "::error::DIAG ls $l"; done
           for f in $(find "$HOME" -name '*.log' | head -5); do echo "::error::DIAG logfile $f"; tail -25 "$f" | while IFS= read -r l; do echo "::error::DIAG $l"; done; done
           (python3 -c 'import anvil_agent,sys;print(sys.executable, anvil_agent.__file__)' 2>&1; which python3) | while IFS= read -r l; do echo "::error::DIAG $l"; done
       - name: End-to-end
