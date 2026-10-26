@@ -16,16 +16,16 @@ const running = (): string => {
 }
 
 test('Electron starts and supervises its own runtime, with a locked-down renderer', async () => {
-  test.setTimeout(150_000) // cold CI runners take far longer than a dev machine to import the runtime
+  test.setTimeout(90_000) // cold CI runners take far longer than a dev machine to import the runtime
   const { home } = JSON.parse(readFileSync(resolve(__dirname, '.state.json'), 'utf8')) as { home: string }
   const app = await electron.launch({
-    args: ['--no-sandbox', '.'],
+    args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '.'],
     cwd: resolve(__dirname, '..'),
     env: { ...process.env, HOME: home, USERPROFILE: home, ANVIL_PROJECT_DIR: home }
   })
   try {
     const win = await app.firstWindow()
-    await expect(win.getByText('Connected', { exact: true })).toBeVisible({ timeout: 100_000 })
+    await expect(win.getByText('Connected', { exact: true })).toBeVisible({ timeout: 60_000 })
 
     // Renderer isolation: no Node, but the preload bridge is present.
     expect(await win.evaluate(() => typeof (window as unknown as { require?: unknown }).require)).toBe('undefined')
