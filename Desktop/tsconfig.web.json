@@ -5,5 +5,6 @@
     "noUnusedLocals": true, "noUnusedParameters": true,
     "baseUrl": ".", "paths": { "@/*": ["src/renderer/src/*"] }, "types": ["vite/client"]
   },
-  "include": ["src/renderer/src/**/*", "src/shared/**/*", "tests/**/*"]
+  "include": ["src/renderer/src/**/*", "src/shared/**/*", "tests/**/*"],
+  "exclude": ["tests/launch.test.ts", "tests/bundle-runtime.test.ts"]
 }
