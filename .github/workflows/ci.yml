@@ -38,6 +38,15 @@ jobs:
       - name: Install Playwright browser
         working-directory: Desktop
         run: npx playwright install --with-deps chromium
+      - name: DIAGNOSTIC electron launch
+        if: always()
+        working-directory: Desktop
+        continue-on-error: true
+        env:
+          ANVIL_RUNTIME_DIR: ${{ github.workspace }}/AgentRuntime
+          ELECTRON_ENABLE_LOGGING: '1'
+        run: |
+          (timeout 25 xvfb-run -a npx electron --no-sandbox . 2>&1 || true) | head -40 | while IFS= read -r l; do echo "::error::DIAG $l"; done
       - name: End-to-end
         working-directory: Desktop
         env:
