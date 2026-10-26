@@ -7,6 +7,7 @@ export function PermissionDialog(): React.JSX.Element | null {
   if (!request) return null
   return (
     <Modal title="Allow this action?" onClose={() => void respond(false)} width={520}>
+      {request.source && <p className="muted small">Requested by a {request.source}</p>}
       <p>
         Anvil wants to run <strong>{request.toolName}</strong>:
       </p>

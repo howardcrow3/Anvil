@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
 from anvil_agent.models.types import ToolResult
@@ -31,3 +32,19 @@ class Tool(ABC):
             "description": self.description,
             "parameters": self.parameters,
         }
+
+
+def resolve_path(arguments: dict[str, Any], key: str = "file_path", default: str | None = None) -> Path:
+    """A path argument, resolved against the injected ``working_dir`` when it is relative.
+
+    The runtime process's own cwd is the runtime install directory (not the user's project), so a
+    relative path must never be resolved against it.
+    """
+    raw = arguments.get(key) or default
+    if raw is None:
+        raise KeyError(key)
+    path = Path(raw)
+    base = arguments.get("working_dir")
+    if base and not path.is_absolute():
+        path = Path(base) / path
+    return path

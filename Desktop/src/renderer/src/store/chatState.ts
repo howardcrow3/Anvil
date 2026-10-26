@@ -27,6 +27,15 @@ export function addUserMessage(state: ChatState, text: string): ChatState {
 }
 
 /** Pure reducer for streamed `chat.event`s — everything the chat view renders derives from this. */
+/** A permission request from the runtime (main agent or a subagent), or null if it is malformed. */
+export function toPermissionRequest(event: Record<string, unknown>, source?: string): PermissionRequest | null {
+  const e = event as { request_id?: string; id?: string; tool_name?: string; name?: string; arguments?: Record<string, unknown> }
+  const id = e.request_id ?? e.id
+  const toolName = e.tool_name ?? e.name
+  if (!id || !toolName) return null
+  return { id, toolName, arguments: e.arguments ?? {}, ...(source ? { source } : {}) }
+}
+
 export function applyEvent(state: ChatState, event: ChatEvent): ChatState {
   switch (event.type) {
     case 'text_delta': {
@@ -60,10 +69,8 @@ export function applyEvent(state: ChatState, event: ChatEvent): ChatState {
       return state
     }
     case 'permission_request': {
-      const e = event as { request_id?: string; id?: string; tool_name?: string; name?: string; arguments?: Record<string, unknown> }
-      const id = e.request_id ?? e.id
-      const toolName = e.tool_name ?? e.name
-      return id && toolName ? { ...state, permission: { id, toolName, arguments: e.arguments ?? {} } } : state
+      const permission = toPermissionRequest(event)
+      return permission ? { ...state, permission } : state
     }
     case 'compaction':
       return {

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from anvil_agent.models.types import ToolResult
-from anvil_agent.tools.base import Tool
+from anvil_agent.tools.base import Tool, resolve_path
 
 
 class WriteTool(Tool):
@@ -29,7 +29,7 @@ class WriteTool(Tool):
     }
 
     async def execute(self, arguments: dict[str, Any]) -> ToolResult:
-        file_path = Path(arguments["file_path"])
+        file_path = resolve_path(arguments)
         content = arguments["content"]
 
         try:

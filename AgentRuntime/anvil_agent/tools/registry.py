@@ -101,7 +101,10 @@ class ToolRegistry:
     async def execute(self, request: ToolCallRequest) -> ToolResult:
         """Execute a tool by name with the given arguments."""
         if request.name in BRIDGE_TOOL_NAMES and self.search_active:
-            return await self._get_bridge().handle(request)
+            try:
+                return await self._get_bridge().handle(request)
+            except Exception as e:
+                return ToolResult(id=request.id, content=f"Error executing {request.name}: {e}", is_error=True)
         tool = self._tools.get(request.name)
         if tool is None:
             return ToolResult(

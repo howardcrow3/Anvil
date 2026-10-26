@@ -64,7 +64,7 @@ class TestHooksEngineLoadConfig:
             ]))
 
             engine = HooksEngine()
-            engine.load_from_files(project_dir=Path(tmp))
+            engine.load_from_files(project_dir=Path(tmp), trust_project=True)
             assert len(engine._hooks) == 1
             assert engine._hooks[0]["command"] == "echo test"
 
@@ -78,7 +78,7 @@ class TestHooksEngineLoadConfig:
             ))
 
             engine = HooksEngine()
-            engine.load_from_files(project_dir=Path(tmp))
+            engine.load_from_files(project_dir=Path(tmp), trust_project=True)
             assert len(engine._hooks) == 1
 
 

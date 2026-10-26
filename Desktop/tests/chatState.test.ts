@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addUserMessage, applyEvent, fromHistory, initialChat } from '@/store/chatState'
+import { addUserMessage, applyEvent, fromHistory, initialChat, toPermissionRequest } from '@/store/chatState'
 
 const run = (events: Parameters<typeof applyEvent>[1][], start = initialChat) => events.reduce(applyEvent, start)
 
@@ -58,5 +58,21 @@ describe('chat event reducer', () => {
       { role: 'assistant', content: 'b' }
     ])
     expect(msgs.map((m) => m.role)).toEqual(['user', 'assistant'])
+  })
+})
+
+describe('toPermissionRequest', () => {
+  it('reads main-agent and subagent event shapes', () => {
+    expect(toPermissionRequest({ request_id: 'r1', tool_name: 'bash', arguments: { command: 'ls' } })).toEqual({
+      id: 'r1', toolName: 'bash', arguments: { command: 'ls' }
+    })
+    expect(toPermissionRequest({ id: 'r2', name: 'write_file' }, 'subagent')).toEqual({
+      id: 'r2', toolName: 'write_file', arguments: {}, source: 'subagent'
+    })
+  })
+
+  it('rejects malformed events', () => {
+    expect(toPermissionRequest({})).toBeNull()
+    expect(toPermissionRequest({ request_id: 'x' })).toBeNull()
   })
 })

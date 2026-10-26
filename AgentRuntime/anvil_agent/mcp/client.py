@@ -34,6 +34,7 @@ from typing import Any
 
 from mcp import Client, StdioServerParameters, types
 from mcp.client.sse import sse_client
+from mcp.client.stdio import get_default_environment
 from mcp.client.streamable_http import streamable_http_client
 
 from anvil_agent.models.types import ToolResult
@@ -157,7 +158,10 @@ class MCPServerConnection:
         cfg = self._config
         kind = self.transport_kind
         if kind == "stdio":
-            env = {**os.environ, **_expand(cfg.get("env") or {})}
+            # Start from the SDK's small safe set (PATH, HOME, ...), not the whole environment: stdio servers
+            # are third-party code and must not inherit ANVIL_WS_TOKEN or API keys. Only what the user
+            # configured under "env" is added.
+            env = {**get_default_environment(), **_expand(cfg.get("env") or {})}
             return StdioServerParameters(
                 command=cfg["command"],
                 args=[str(a) for a in _expand(cfg.get("args") or [])],

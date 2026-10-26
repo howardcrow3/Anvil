@@ -197,6 +197,9 @@ class SubagentManager:
                 rec.tool_calls += 1
                 self._log(rec, {"t": "call", "name": event.get("name"), "args": str(event.get("arguments"))[:160]})
             elif kind == "tool_result":
+                # Everything said before a tool result was narration ("Let me check..."); only the text
+                # after the last tool result is the final message the parent should receive.
+                text = ""
                 self._log(rec, {"t": "result", "error": bool(event.get("is_error")), "preview": str(event.get("content"))[:160]})
             elif kind == "error":
                 rec.error = event.get("message")

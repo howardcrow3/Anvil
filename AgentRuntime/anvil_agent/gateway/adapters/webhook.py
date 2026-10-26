@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import ipaddress
 import logging
 from typing import Any, Awaitable, Callable
+from urllib.parse import urlsplit
 
 try:
     from aiohttp import web
@@ -19,6 +21,27 @@ from anvil_agent.gateway.adapters.base import PlatformAdapter
 from anvil_agent.gateway.config import WebhookConfig
 
 logger = logging.getLogger(__name__)
+
+
+def is_loopback_host(host: str) -> bool:
+    """True for localhost and loopback IP literals."""
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def callback_url_allowed(url: str, allowed_hosts: list[str]) -> bool:
+    """Only http(s) URLs whose host is explicitly allow-listed may receive the reply."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return False
+    return parts.hostname.lower() in {h.lower() for h in allowed_hosts}
 
 
 class WebhookAdapter(PlatformAdapter):
@@ -44,16 +67,22 @@ class WebhookAdapter(PlatformAdapter):
 
     async def start(self) -> None:
         """Start the webhook HTTP server."""
+        host = self._config.host
+        if not self._config.hmac_secret and not is_loopback_host(host):
+            raise ValueError(
+                f"Refusing to start the webhook adapter on {host}: set hmac_secret, "
+                "or listen on 127.0.0.1 only."
+            )
         self._app = web.Application()
         self._app.router.add_post("/webhook/chat", self._handle_chat)
         self._app.router.add_get("/webhook/health", self._handle_health)
 
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
-        self._site = web.TCPSite(self._runner, "0.0.0.0", self._config.port)
+        self._site = web.TCPSite(self._runner, host, self._config.port)
         await self._site.start()
         self._running = True
-        logger.info("Webhook adapter started on port %d", self._config.port)
+        logger.info("Webhook adapter started on %s:%d", host, self._config.port)
 
     async def stop(self) -> None:
         """Stop the webhook server."""
@@ -79,7 +108,8 @@ class WebhookAdapter(PlatformAdapter):
             hashlib.sha256,
         ).hexdigest()
 
-        return hmac.compare_digest(expected, signature)
+        # Compare as bytes: compare_digest raises TypeError for non-ASCII str.
+        return hmac.compare_digest(expected.encode(), signature.encode("utf-8", "replace"))
 
     async def _handle_chat(self, request: web.Request) -> web.Response:
         """Handle POST /webhook/chat.
@@ -108,6 +138,9 @@ class WebhookAdapter(PlatformAdapter):
                     {"error": "Invalid JSON"}, status=400
                 )
 
+        if not isinstance(data, dict):
+            return web.json_response({"error": "Body must be a JSON object"}, status=400)
+
         message = data.get("message", "")
         user_id = data.get("user_id", "anonymous")
         callback_url = data.get("callback_url")
@@ -115,6 +148,11 @@ class WebhookAdapter(PlatformAdapter):
         if not message:
             return web.json_response(
                 {"error": "No message provided"}, status=400
+            )
+
+        if callback_url and not callback_url_allowed(str(callback_url), self._config.callback_allowed_hosts):
+            return web.json_response(
+                {"error": "callback_url host is not allowed"}, status=400
             )
 
         if self.on_message is None:

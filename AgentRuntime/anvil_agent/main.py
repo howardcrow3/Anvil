@@ -279,7 +279,11 @@ class AnvilRuntime:
                 logger.info("Git repository detected at %s", repo_root)
 
         # Load hooks from config files
-        self._hooks_engine.load_from_files(project_dir=self._project_dir)
+        trusted = {str(Path(p).expanduser().resolve()) for p in (self._settings.get("trusted_hook_projects") or [])}
+        self._hooks_engine.load_from_files(
+            project_dir=self._project_dir,
+            trust_project=str(self._project_dir.resolve()) in trusted,
+        )
 
         # Start MCP servers
         await self._mcp_client.load_and_start(self._tool_registry)
@@ -312,12 +316,7 @@ class AnvilRuntime:
         # Start gateway if configured
         if self._gateway_config:
             def _gateway_loop_factory() -> AgentLoop:
-                return AgentLoop(
-                    provider=self._router.active,
-                    tool_registry=self._tool_registry,
-                    system_prompt=SYSTEM_PROMPT,
-                    working_directory=str(self._project_dir),
-                )
+                return self._gateway_agent_loop()
 
             self._gateway = GatewayServer(
                 config=self._gateway_config,
@@ -518,6 +517,61 @@ class AnvilRuntime:
         report = await self._curator.run(spawn_consolidation=consolidate)
         await self._broadcast("curator.report", report)
         return report
+
+    def _rebuild_agent_loop(self) -> None:
+        """Recreate the main agent loop around the router's active provider (keeps plan mode and prompt)."""
+        if self._router.active_model_id is None:
+            self._agent_loop = None
+            return
+        old = self._agent_loop
+        self._agent_loop = AgentLoop(
+            provider=self._router.active,
+            tool_registry=self._tool_registry,
+            system_prompt=old._system_prompt if old else self._system_prompt,
+            working_directory=str(self._project_dir),
+            planning_mode=old._planning_mode if old else False,
+            permission_manager=self._permission_manager,
+            nudger=self._nudger,
+            skill_creator=self._skill_creator,
+            **self._loop_extras(),
+        )
+
+    def _apply_api_key(self, api_key: str) -> None:
+        """Make a new, replaced or removed Anthropic key take effect immediately.
+
+        Providers hold the key they were built with, and the agent loop holds the provider, so
+        registering only the missing models would leave a replaced key unused until restart and a
+        removed key still working.
+        """
+        cloud_ids = [m["id"] for m in get_cloud_models()]
+        if api_key:
+            for model_id in cloud_ids:
+                self._router.register(model_id, ClaudeProvider(model=model_id, api_key=api_key), provider_type="cloud")
+            default_model = self._settings.get("default_model") or "claude-sonnet-5-5"
+            if self._router.has(default_model):
+                self._router.select(default_model)
+        else:
+            for model_id in cloud_ids:
+                self._router.unregister(model_id)
+        self._rebuild_agent_loop()
+        logger.info("API key %s; agent loop rebuilt", "updated" if api_key else "removed")
+
+    def _gateway_agent_loop(self) -> AgentLoop:
+        """Loop for messages arriving from Telegram/Discord/Slack/webhooks.
+
+        Nobody is present to approve a tool call, and ``allowed_users`` may be empty, so these loops
+        get the same non-interactive permission wrapper as background subagents: read-only tools run,
+        anything that needs approval is denied (unless the user chose trust mode), and the user's
+        deny list still applies.
+        """
+        return AgentLoop(
+            provider=self._router.active,
+            tool_registry=self._tool_registry,
+            system_prompt=SYSTEM_PROMPT,
+            working_directory=str(self._project_dir),
+            permission_manager=NonInteractivePermissions(self._permission_manager),
+            unattended=True,
+        )
 
     def _register_endpoints(self) -> None:
         """(Re)register custom OpenAI-compatible endpoints from settings."""
@@ -1030,31 +1084,8 @@ class AnvilRuntime:
             if key == "endpoints":
                 self._register_endpoints()
 
-            # When API key is set, auto-register cloud models and create agent loop
-            if key == "api_key" and value:
-                for cloud_model in get_cloud_models():
-                    model_id = cloud_model["id"]
-                    if not self._router.has(model_id):
-                        provider = ClaudeProvider(model=model_id, api_key=value)
-                        self._router.register(model_id, provider, provider_type="cloud")
-                # Select default model and create agent loop if needed
-                default_model = (
-                    self._settings.get("default_model") or "claude-sonnet-5-5"
-                )
-                if self._router.has(default_model):
-                    self._router.select(default_model)
-                if self._agent_loop is None and self._router.active_model_id is not None:
-                    self._agent_loop = AgentLoop(
-                        provider=self._router.active,
-                        tool_registry=self._tool_registry,
-                        system_prompt=self._system_prompt,
-                        working_directory=str(self._project_dir),
-                        permission_manager=self._permission_manager,
-                        nudger=self._nudger,
-                        skill_creator=self._skill_creator,
-                        **self._loop_extras(),
-                    )
-                    logger.info("Agent loop created after API key was set")
+            if key == "api_key":
+                self._apply_api_key(value or "")
 
             return {"status": "ok", "key": key, "value": value}
         except KeyError as e:
@@ -1283,12 +1314,7 @@ class AnvilRuntime:
             await self._gateway.stop()
 
         def _factory() -> AgentLoop:
-            return AgentLoop(
-                provider=self._router.active,
-                tool_registry=self._tool_registry,
-                system_prompt=SYSTEM_PROMPT,
-                working_directory=str(self._project_dir),
-            )
+            return self._gateway_agent_loop()
 
         self._gateway = GatewayServer(
             config=config,

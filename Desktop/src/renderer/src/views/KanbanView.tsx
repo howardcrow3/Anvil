@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Modal } from '@/components/Modal'
 import { PromptDialog } from '@/components/PromptDialog'
 import { KANBAN_COLUMNS, groupKanban, kanbanAction, kanbanCreate, kanbanDispatcher, kanbanList, kanbanActions, type KanbanTask } from '@/lib/work'
+import { rpc } from '@/lib/api'
 import { errText, useLoad } from './useLoad'
 
 const TITLES = { todo: 'To do', ready: 'Ready', running: 'Running', blocked: 'Blocked', done: 'Done' } as const
@@ -55,6 +56,20 @@ function NewTask({ onClose, onCreated }: { onClose: () => void; onCreated: () =>
 export function KanbanView(): React.JSX.Element {
   const { data, error, reload } = useLoad(kanbanList)
   const [creating, setCreating] = useState(false)
+
+  // The dispatcher moves tasks in the background; refresh (debounced) when the runtime says one changed.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const off = rpc.on('kanban.event', () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => void reload(), 250)
+    })
+    return () => {
+      off()
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [actionError, setActionError] = useState<string | null>(null)
 
   const [blocking, setBlocking] = useState<KanbanTask | null>(null)

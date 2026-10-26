@@ -41,7 +41,8 @@ test('tool call asks permission; allowing runs it and shows the result', async (
   await shot(page, 'permission')
   await dialog.getByRole('button', { name: 'Allow' }).click()
 
-  await expect(page.locator('.msg.assistant')).toContainText('Tool said: hello-from-tool')
+  await expect(page.locator('.msg.assistant')).toContainText('Exit code: 0')
+  await expect(page.locator('.msg.assistant')).toContainText('hello-from-tool')
   const card = page.locator('.tool-card').first()
   await expect(card).toHaveClass(/done/)
   await card.getByRole('button').first().click()

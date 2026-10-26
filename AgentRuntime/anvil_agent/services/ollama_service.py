@@ -84,7 +84,8 @@ class OllamaService:
             self._base_url = self.BASE_URL_TEMPLATE.format(port=port)
 
             env = os.environ.copy()
-            env["OLLAMA_HOST"] = f"0.0.0.0:{port}"
+            env.pop("ANVIL_WS_TOKEN", None)  # the runtime's auth token is not Ollama's business
+            env["OLLAMA_HOST"] = f"127.0.0.1:{port}"  # loopback only: Ollama has no auth
             # Ensure Ollama can find its dylibs (co-located with binary)
             binary_dir = str(Path(binary).parent)
             existing = env.get("DYLD_LIBRARY_PATH", "")

@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
+import signal
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -31,17 +33,28 @@ class HookEvent(str, Enum):
     TEAMMATE_IDLE = "TeammateIdle"
 
 
+# A hook that can veto the event must not fail open: if it times out or cannot launch, block.
+BLOCKING_EVENTS = {HookEvent.PRE_TOOL_USE.value, HookEvent.USER_PROMPT_SUBMIT.value}
+HOOK_TIMEOUT = 30
+
+
 class HooksEngine:
     """Executes configured hooks at lifecycle events."""
 
     def __init__(self, hooks_config: list[dict[str, Any]] | None = None) -> None:
         self._hooks: list[dict[str, Any]] = hooks_config or []
+        self._project_dir: Path | None = None
 
     def load_config(self, config: list[dict[str, Any]]) -> None:
         self._hooks = config
 
-    def load_from_files(self, project_dir: Path | None = None) -> None:
-        """Load hooks from global and project-level config files."""
+    def load_from_files(self, project_dir: Path | None = None, trust_project: bool = False) -> None:
+        """Load hooks from the global config and, only if ``trust_project`` is set, the project folder.
+
+        Project hooks are shell commands that live in whatever repository was opened, so they never run
+        unless the user has explicitly trusted that folder (opening a cloned repo must not run its code).
+        """
+        self._project_dir = project_dir
         hooks: list[dict[str, Any]] = []
 
         # Global hooks
@@ -56,7 +69,12 @@ class HooksEngine:
         # Project-level hooks
         if project_dir:
             hooks_dir = project_dir / ".claude" / "hooks"
-            if hooks_dir.is_dir():
+            if hooks_dir.is_dir() and not trust_project:
+                logger.warning(
+                    "Ignoring project hooks in %s: the folder is not trusted "
+                    "(add it to the trusted_hook_projects setting to enable them)", hooks_dir,
+                )
+            elif hooks_dir.is_dir():
                 for path in sorted(hooks_dir.glob("*.json")):
                     try:
                         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -125,6 +143,9 @@ class HooksEngine:
                     return False, output
             except Exception as e:
                 logger.error("Hook error for %s: %s", event.value, e)
+                if event.value in BLOCKING_EVENTS:
+                    reason = f"Blocked: the {event.value} hook failed ({type(e).__name__}: {e or 'no detail'})"
+                    return False, reason
 
         output = "\n".join(collected_output) if collected_output else None
         return True, output
@@ -145,11 +166,28 @@ class HooksEngine:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=str(self._project_dir) if self._project_dir else None,
+            start_new_session=(os.name == "posix"),
         )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=json.dumps(data).encode()),
-            timeout=30,
-        )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=json.dumps(data).encode()),
+                timeout=HOOK_TIMEOUT,
+            )
+        except BaseException:
+            # Timed out or cancelled: take the whole process tree down instead of leaking it.
+            try:
+                if os.name == "posix":
+                    os.killpg(proc.pid, signal.SIGKILL)
+                else:
+                    proc.kill()
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                pass
+            raise
 
         stdout_text = stdout.decode(errors="replace").strip() if stdout else None
         allowed = proc.returncode != 2
