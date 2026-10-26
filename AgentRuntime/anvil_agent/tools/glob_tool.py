@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from anvil_agent.models.types import ToolResult
-from anvil_agent.tools.base import Tool
+from anvil_agent.tools.base import Tool, resolve_path
 
 
 class GlobTool(Tool):
@@ -30,7 +30,7 @@ class GlobTool(Tool):
 
     async def execute(self, arguments: dict[str, Any]) -> ToolResult:
         pattern = arguments["pattern"]
-        search_path = Path(arguments.get("path", "."))
+        search_path = resolve_path(arguments, "path", ".")
 
         if not search_path.exists():
             return ToolResult(id="", content=f"Error: Path not found: {search_path}", is_error=True)

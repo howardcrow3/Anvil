@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from anvil_agent.models.types import ToolResult
-from anvil_agent.tools.base import Tool
+from anvil_agent.tools.base import Tool, resolve_path
 
 
 class ReadTool(Tool):
@@ -34,7 +34,7 @@ class ReadTool(Tool):
     }
 
     async def execute(self, arguments: dict[str, Any]) -> ToolResult:
-        file_path = Path(arguments["file_path"])
+        file_path = resolve_path(arguments)
         offset = arguments.get("offset", 1)
         limit = arguments.get("limit")
 

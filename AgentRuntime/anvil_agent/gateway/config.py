@@ -47,7 +47,11 @@ class WebhookConfig(PlatformConfig):
     """Webhook server configuration."""
 
     port: int = 8432
+    #: Interface to listen on. Anything other than loopback requires ``hmac_secret``.
+    host: str = "127.0.0.1"
     hmac_secret: str = ""
+    #: Hosts a request may ask us to POST the reply to (``callback_url``). Empty disables callbacks.
+    callback_allowed_hosts: list[str] = Field(default_factory=list)
 
 
 class GatewayConfig(BaseModel):

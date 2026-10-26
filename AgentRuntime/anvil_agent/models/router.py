@@ -55,6 +55,13 @@ class ModelRouter:
         if self._active is None:
             self._active = model_id
 
+    def unregister(self, model_id: str) -> None:
+        """Remove a provider. If it was active, fall back to any remaining one (or none)."""
+        self._providers.pop(model_id, None)
+        self._provider_types.pop(model_id, None)
+        if self._active == model_id:
+            self._active = next(iter(self._providers), None)
+
     def select(self, model_id: str) -> None:
         if model_id not in self._providers:
             raise ValueError(f"Unknown model: {model_id}")

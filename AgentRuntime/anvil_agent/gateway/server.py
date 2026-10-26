@@ -300,11 +300,15 @@ def main() -> None:
         tool_registry = create_default_registry()
         session_manager = SessionManager()
 
+        from anvil_agent.subagents.manager import NonInteractivePermissions
+
         def agent_loop_factory() -> AgentLoop:
             return AgentLoop(
                 provider=router.active,
                 tool_registry=tool_registry,
                 system_prompt=SYSTEM_PROMPT,
+                # No one is there to approve tool calls: read-only tools run, everything else is denied.
+                permission_manager=NonInteractivePermissions(None),
                 unattended=True,
             )
 

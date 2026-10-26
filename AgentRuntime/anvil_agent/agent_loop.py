@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 
 MAX_ITERATIONS = 50
 
-BLOCKED_IN_PLANNING = {"write_file", "edit_file", "bash"}
+# Planning mode is read-only. Besides the obvious write tools this must cover the ones that act through
+# other agents or persistent stores: a delegated child would otherwise run bash/write_file unrestricted.
+BLOCKED_IN_PLANNING = {"write_file", "edit_file", "bash", "delegate_task", "skill_manage", "memory", "kanban"}
 
 SYSTEM_PROMPT = """You are Anvil, a powerful AI coding assistant running locally on the user's machine.
 
@@ -333,7 +335,7 @@ class AgentLoop:
 
                 # Inject working_directory for tools that accept it
                 if self._working_directory and "working_dir" not in eff_args:
-                    if eff_name in ("bash", "glob", "grep"):
+                    if eff_name in ("bash", "glob", "grep", "read_file", "write_file", "edit_file"):
                         eff_args["working_dir"] = self._working_directory
 
                 pre = self._guard.before_call(eff_name, eff_args)

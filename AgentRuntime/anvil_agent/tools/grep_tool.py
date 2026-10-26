@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from anvil_agent.models.types import ToolResult
-from anvil_agent.tools.base import Tool
+from anvil_agent.tools.base import Tool, resolve_path
 
 
 class GrepTool(Tool):
@@ -36,7 +36,7 @@ class GrepTool(Tool):
 
     async def execute(self, arguments: dict[str, Any]) -> ToolResult:
         pattern = arguments["pattern"]
-        search_path = Path(arguments.get("path", "."))
+        search_path = resolve_path(arguments, "path", ".")
         include = arguments.get("include", "*")
 
         try:

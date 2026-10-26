@@ -32,6 +32,8 @@ export interface PermissionRequest {
   id: string
   toolName: string
   arguments: Record<string, unknown>
+  /** Set when a delegated subagent, not the main agent, is asking. */
+  source?: string
 }
 
 /** Events the runtime streams as `chat.event` notifications. */

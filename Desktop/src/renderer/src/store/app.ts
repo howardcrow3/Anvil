@@ -3,8 +3,8 @@ import type { RuntimeState } from '../../../shared/types'
 import { call, rpc } from '@/lib/api'
 import { bridge, resolveRuntime, watchRuntime } from '@/lib/bridge'
 import type { ConnectionState } from '@/lib/rpc'
-import type { ChatEvent, ModelInfo, SessionMeta } from '@/lib/types'
-import { addUserMessage, applyEvent, fromHistory, initialChat, type ChatState } from './chatState'
+import type { ChatEvent, ModelInfo, PermissionRequest, SessionMeta } from '@/lib/types'
+import { addUserMessage, applyEvent, fromHistory, initialChat, toPermissionRequest, type ChatState } from './chatState'
 
 export type SettingsTab = 'general' | 'apikey' | 'endpoints' | 'permissions' | 'mcp'
 export type View = 'chat' | 'projects' | 'kanban' | 'teams' | 'skills'
@@ -19,6 +19,8 @@ interface AppStore {
   settings: Record<string, unknown>
   planning: boolean
   chat: ChatState
+  /** Permission requests that arrived while another was on screen. */
+  permissionQueue: PermissionRequest[]
   notice: string | null
   view: View
   settingsOpen: boolean
@@ -69,6 +71,7 @@ export const useApp = create<AppStore>((set, get) => ({
   settings: {},
   planning: false,
   chat: initialChat,
+  permissionQueue: [],
   notice: null,
   view: 'chat',
   settingsOpen: false,
@@ -104,6 +107,15 @@ export const useApp = create<AppStore>((set, get) => ({
           void get().refreshSessions()
           if (!document.hasFocus()) void bridge()?.notify('Anvil', 'Response ready')
         }
+      }),
+      // Delegated subagents ask for permission through their own notification; without this the
+      // child would wait out its 5-minute timeout and the user would never see a prompt.
+      rpc.on('subagent.permission_request', (params) => {
+        const p = params as { role?: string; goal?: string }
+        const source = `${p.role ?? 'subagent'} subagent${p.goal ? `: ${p.goal}` : ''}`
+        const request = toPermissionRequest(params, source)
+        if (!request) return
+        set((s) => (s.chat.permission ? { permissionQueue: [...s.permissionQueue, request] } : { chat: { ...s.chat, permission: request } }))
       }),
       watchRuntime(connect)
     )
@@ -163,7 +175,10 @@ export const useApp = create<AppStore>((set, get) => ({
 
   newChat() {
     if (get().chat.streaming) return
-    set({ currentSessionId: null, chat: initialChat, planning: false, view: 'chat' })
+    // Plan mode lives in the runtime, not just in this store: turn it off there too, or the toggle
+    // reads "off" while every write is still being blocked.
+    if (get().planning) void call('planning.stop').catch((e) => set({ notice: message(e) }))
+    set({ currentSessionId: null, chat: initialChat, permissionQueue: [], planning: false, view: 'chat' })
   },
 
   async openSession(id) {
@@ -215,7 +230,10 @@ export const useApp = create<AppStore>((set, get) => ({
   async respondPermission(approved) {
     const request = get().chat.permission
     if (!request) return
-    set((s) => ({ chat: { ...s.chat, permission: null } }))
+    set((s) => {
+      const [next, ...rest] = s.permissionQueue
+      return { chat: { ...s.chat, permission: next ?? null }, permissionQueue: rest }
+    })
     try {
       await call('permission.respond', { request_id: request.id, approved })
     } catch (e) {

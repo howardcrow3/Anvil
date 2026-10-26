@@ -115,12 +115,14 @@ class SessionManager:
     def list_sessions(self) -> list[dict[str, Any]]:
         """List all sessions with metadata."""
         sessions = []
-        for meta_path in sorted(self._dir.glob("*.meta.json"), reverse=True):
+        for meta_path in self._dir.glob("*.meta.json"):
             try:
                 meta = SessionMetadata(**json.loads(meta_path.read_text()))
                 sessions.append(meta.model_dump())
             except Exception:
                 continue
+        # Most recently active first. (File names are random UUIDs, so name order means nothing.)
+        sessions.sort(key=lambda m: m.get("last_active") or m.get("created_at") or "", reverse=True)
         return sessions
 
     def auto_name(self, session_id: str, first_message: str) -> None:
