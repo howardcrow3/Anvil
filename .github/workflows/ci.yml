@@ -104,10 +104,12 @@ jobs:
           # Unsigned builds. Add CSC_LINK / CSC_KEY_PASSWORD (and the APPLE_* notarization secrets) to sign.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
+          # On failure, surface the tail of the log as annotations (the raw job log is not always reachable).
+          fail() { tail -30 build.log | while IFS= read -r l; do echo "::error::$l"; done; exit 1; }
           npm ci
           npm run build
-          npm run bundle:runtime
-          npx electron-builder ${{ matrix.args }} --publish never
+          npm run bundle:runtime > build.log 2>&1 || fail
+          npx electron-builder ${{ matrix.args }} --publish never > build.log 2>&1 || fail
       - uses: actions/upload-artifact@v4
         with:
           name: anvil-${{ matrix.name }}
