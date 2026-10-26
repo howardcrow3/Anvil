@@ -106,5 +106,6 @@ mkdirSync(join(out, 'Resources'), { recursive: true })
 cpSync(join(repo, 'Resources', 'default-models.json'), join(out, 'Resources', 'default-models.json'))
 
 // Smoke test: the bundled interpreter can import the runtime.
-run(python, ['-I', '-c', 'import sys; sys.path.insert(0, sys.argv[1]); import anvil_agent.main, mcp; print("runtime import ok")', site])
+// (On Windows the runtime adds site/win32 and site/win32/lib too: see resolveLaunch.)
+run(python, ['-I', '-c', 'import sys; sys.path[:0] = sys.argv[1:]; import anvil_agent.main, mcp; print("runtime import ok")', site, join(site, 'win32'), join(site, 'win32', 'lib')])
 console.log(`Runtime bundled at ${out}`)
