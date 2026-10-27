@@ -20,5 +20,5 @@ Cross-platform desktop AI agent app: Electron + React front end and a Python age
 - IPC: JSON-RPC 2.0 over a localhost WebSocket (token via env ANVIL_WS_TOKEN); a Unix socket is optional
 - All tools shared between Claude and local model paths
 
-## Claude Code Plugins
-- `.claude/settings.json` enables the [superpowers](https://github.com/obra/superpowers) skills plugin (TDD, systematic debugging, planning, code review). Claude Code asks to install it the first time you trust this repo.
+## Claude Code Skills
+- `.claude/skills/` holds the [superpowers](https://github.com/obra/superpowers) skills (TDD, systematic debugging, planning, code review), vendored from upstream v6.4.2 under the MIT license. See `.claude/skills/README.md`.
