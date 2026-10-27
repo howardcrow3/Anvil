@@ -333,19 +333,14 @@ async def test_startup_failure_surfaces_the_servers_own_message(tmp_path):
         await svc.close()
 
 
-async def test_errors_tell_the_user_what_to_do(tmp_path):
-    svc = LlamaCppService(models_dir=tmp_path / "models", state_dir=tmp_path / "run", binary=str(tmp_path / "nope"))
+async def test_errors_tell_the_user_what_to_do(tmp_path, monkeypatch):
+    svc = LlamaCppService(models_dir=tmp_path / "models", state_dir=tmp_path / "run")
+    monkeypatch.setattr(svc, "resolve_binary", lambda: None)  # whatever is installed on this machine
     with pytest.raises(LlamaCppError, match="not downloaded"):
         await svc.ensure_running(ENTRY)
     await _fake_download(svc)
-    svc._configured_binary = None
-    os.environ.pop("ANVIL_LLAMA_SERVER", None)
-    os.environ.pop("ANVIL_LLAMA_DIR", None)
-    import shutil
-
-    if shutil.which("llama-server") is None:
-        with pytest.raises(LlamaCppError, match="llama-server was not found"):
-            await svc.ensure_running(ENTRY)
+    with pytest.raises(LlamaCppError, match="llama-server was not found"):
+        await svc.ensure_running(ENTRY)
     await svc.close()
 
 
