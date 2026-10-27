@@ -42,6 +42,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         supports_tools=True,
         context_window=131072,
         hf_repo="ggml-org/gemma-4-E2B-it-GGUF",
+        quant="Q4_0",  # ggml-org publishes Q4_0 only
     ),
     ModelCatalogEntry(
         id="gemma4:e4b",
@@ -54,6 +55,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         supports_tools=True,
         context_window=131072,
         hf_repo="ggml-org/gemma-4-E4B-it-GGUF",
+        quant="Q4_0",  # ggml-org publishes Q4_0 only
     ),
     ModelCatalogEntry(
         id="gemma4:26b",
@@ -66,6 +68,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         supports_tools=True,
         context_window=262144,
         hf_repo="ggml-org/gemma-4-26B-A4B-it-GGUF",
+        quant="Q4_0",  # ggml-org publishes Q4_0 only
     ),
     # Nous Research Hermes (hybrid reasoning, <tool_call> function calling)
     ModelCatalogEntry(
@@ -110,7 +113,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         name="Llama 4 Scout",
         provider="meta",
         parameters="17B active (109B MoE)",
-        min_ram_gb=12,
+        min_ram_gb=67,
         description="Meta's mixture-of-experts model",
         best_for="Complex reasoning tasks",
         supports_tools=True,
@@ -134,7 +137,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         name="Qwen 3 32B",
         provider="alibaba",
         parameters="32B",
-        min_ram_gb=20,
+        min_ram_gb=21,
         description="Alibaba's large model for heavy tasks",
         best_for="Complex tasks, M3/M4 Pro+",
         supports_tools=True,
