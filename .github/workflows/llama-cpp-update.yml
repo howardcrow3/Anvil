@@ -35,8 +35,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.tag }}
         run: |
-          node Desktop/scripts/update-llama-cpp.mjs ${TAG:+--tag "$TAG"} | tee bump.json
-          echo "::notice title=llama.cpp bump::$(cat bump.json | cut -c1-300)"
+          # Errors become one annotation: the raw job log is not always reachable.
+          if ! node Desktop/scripts/update-llama-cpp.mjs ${TAG:+--tag "$TAG"} > bump.json 2> bump.err; then
+            echo "::error title=llama.cpp bump failed::$(head -c 1500 bump.err | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          fi
+          cat bump.json
           echo "changed=$(node -p "JSON.parse(require('fs').readFileSync('bump.json','utf8')).changed")" >> "$GITHUB_OUTPUT"
           echo "tag=$(node -p "JSON.parse(require('fs').readFileSync('bump.json','utf8')).tag")" >> "$GITHUB_OUTPUT"
       - if: steps.bump.outputs.changed == 'true'
