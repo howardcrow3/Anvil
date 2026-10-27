@@ -82,6 +82,12 @@ jobs:
           npm run build
           npx playwright install --with-deps chromium
           xvfb-run -a npx playwright test electron --reporter=list,github
+      - name: Electron launch diagnostic
+        if: failure()
+        working-directory: Desktop
+        env:
+          ANVIL_RUNTIME_DIR: ${{ github.workspace }}/AgentRuntime
+        run: xvfb-run -a node scripts/diagnose-electron.mjs
 
   installers:
     needs: test
