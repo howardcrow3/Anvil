@@ -93,8 +93,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const i = process.argv.indexOf(`--${name}`)
     return i > 0 ? process.argv[i + 1] : undefined
   }
-  await bundleLlama({
-    out: resolve(arg('out') ?? join(desktop, 'build', 'runtime')),
-    cache: resolve(arg('cache') ?? join(desktop, 'build', 'cache'))
-  })
+  try {
+    await bundleLlama({
+      out: resolve(arg('out') ?? join(desktop, 'build', 'runtime')),
+      cache: resolve(arg('cache') ?? join(desktop, 'build', 'cache'))
+    })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    console.error(message)
+    // On GitHub Actions also raise it as an annotation: the raw job log is not always reachable.
+    if (process.env.GITHUB_ACTIONS) console.log(`::error title=bundle-llama::${message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A').slice(0, 3000)}`)
+    process.exit(1)
+  }
 }
