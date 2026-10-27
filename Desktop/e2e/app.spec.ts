@@ -76,7 +76,8 @@ test('reopening a session restores its messages', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Send' })).toBeVisible()
   await page.getByRole('button', { name: '+ New chat' }).click()
   await expect(page.getByRole('heading', { name: 'What should we build?' })).toBeVisible()
-  await page.locator('.session').first().click()
+  // Open this test's own session by name: the list is ordered by activity, and earlier tests' sessions share the store.
+  await page.locator('.session', { hasText: 'remember me' }).first().click()
   await expect(page.locator('.msg.user')).toContainText('remember me')
 })
 
