@@ -89,7 +89,7 @@ jobs:
           node -e "
             const r = JSON.parse(require('fs').readFileSync('pw-electron.json', 'utf8'));
             const errs = [];
-            const walk = (s) => { (s.specs || []).forEach((sp) => sp.tests.forEach((t) => t.results.forEach((x) => (x.errors || []).forEach((e) => errs.push(e.message))))); (s.suites || []).forEach(walk); };
+            const walk = (s) => { (s.specs || []).forEach((sp) => sp.tests.forEach((t) => t.results.forEach((x) => { errs.push('stdout:\\n' + (x.stdout || []).map((o) => o.text || '').join('')); (x.errors || []).forEach((e) => errs.push(e.message)) }))); (s.suites || []).forEach(walk); };
             (r.suites || []).forEach(walk);
             const text = errs.join('\n---\n').replace(/\u001b\[[0-9;]*m/g, '').slice(0, 3800);
             console.log(text);
