@@ -104,6 +104,8 @@ def main() -> int:
                 print(f"::error title=catalog {r.entry.id}::{'; '.join(r.errors)}")
             elif r.warnings:
                 print(f"::warning title=catalog {r.entry.id}::{'; '.join(r.warnings)}")
+            if not r.errors:
+                print(f"::notice title=catalog size {r.entry.id}::{r.quant_used} {r.download_gb} GB")
     return 1 if any(r.errors for r in results) or (os.environ.get("CATALOG_STRICT") and any(r.warnings for r in results)) else 0
 
 
