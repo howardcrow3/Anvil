@@ -20,11 +20,13 @@ const api = async (path) => {
   return res.json()
 }
 // "releases/latest" can point at a release with no binaries, so pick the newest one that has them all.
-const chosen = tag ? { ...pickAssets(await api(`releases/tags/${tag}`)), skipped: [] } : chooseRelease(await api('releases?per_page=40'))
+const listing = tag ? null : await api('releases?per_page=40')
+const chosen = tag ? { ...pickAssets(await api(`releases/tags/${tag}`)), skipped: [] } : chooseRelease(listing)
 const { lock, missing } = chosen
 if (!lock || missing.length) {
   console.error(`No usable llama.cpp release${tag ? ` ${tag}` : ''}: missing ${missing.join(', ')}. Not adopting anything; adjust TARGETS in scripts/llama-cpp-lib.mjs if the asset naming changed.`)
   if (chosen.skipped.length) console.error(`Checked: ${chosen.skipped.join('; ')}`)
+  if (listing) console.error(`Listing (first 8 of ${listing.length}): ${listing.slice(0, 8).map((r) => `${r.tag_name}[draft=${r.draft},pre=${r.prerelease},assets=${(r.assets ?? []).length}]`).join(' ')}`)
   process.exit(2)
 }
 
