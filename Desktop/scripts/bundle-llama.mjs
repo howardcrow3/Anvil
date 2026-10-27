@@ -3,12 +3,10 @@
 // Run on the OS/arch you are packaging for; bundle-runtime.mjs calls this too.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
-import { Readable } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
-import { assetFor, llamaDir, readLock } from './llama-cpp-lib.mjs'
+import { assetFor, downloadFile, llamaDir, readLock } from './llama-cpp-lib.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const desktop = resolve(here, '..')
@@ -39,6 +37,13 @@ function run(cmd, args, opts = {}) {
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed (${r.status ?? r.error})\n${String(r.stderr ?? '').trim().slice(-1500)}`)
 }
 
+/** tar that can read .zip: on Windows that is the system bsdtar, not the GNU tar that Git Bash puts first on PATH. */
+export function tarFor(platform = process.platform) {
+  if (platform !== 'win32') return 'tar'
+  const system = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
+  return existsSync(system) ? system : 'tar'
+}
+
 export async function bundleLlama({ out, cache, platform = process.platform, arch = process.arch }) {
   if (platform !== process.platform || arch !== process.arch) {
     throw new Error(`Cross-bundling is not supported: run this on ${platform}-${arch} (host is ${process.platform}-${process.arch}).`)
@@ -50,9 +55,7 @@ export async function bundleLlama({ out, cache, platform = process.platform, arc
   const archive = join(cache, entry.name)
   if (!existsSync(archive) || sha256(archive) !== entry.sha256) {
     console.log(`Downloading llama.cpp ${lock.tag}: ${entry.name}`)
-    const res = await fetch(entry.url, { redirect: 'follow' })
-    if (!res.ok || !res.body) throw new Error(`Download failed (${res.status}) for ${entry.url}`)
-    await pipeline(Readable.fromWeb(res.body), createWriteStream(archive))
+    await downloadFile(entry.url, archive)
   }
   if (sha256(archive) !== entry.sha256) {
     rmSync(archive)
@@ -63,7 +66,7 @@ export async function bundleLlama({ out, cache, platform = process.platform, arc
   const staging = mkdtempSync(join(cache, 'extract-'))
   try {
     if (entry.name.endsWith('.zip') && platform === 'linux') run('unzip', ['-q', archive, '-d', staging])
-    else run('tar', [entry.name.endsWith('.zip') ? '-xf' : '-xzf', entry.name, '-C', basename(staging)], { cwd: cache })
+    else run(tarFor(platform), [entry.name.endsWith('.zip') ? '-xf' : '-xzf', entry.name, '-C', basename(staging)], { cwd: cache })
 
     const exe = platform === 'win32' ? 'llama-server.exe' : 'llama-server'
     const srcDir = findServerDir(staging, exe)

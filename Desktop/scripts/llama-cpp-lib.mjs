@@ -1,7 +1,9 @@
 // Shared by bundle-llama.mjs (installers) and update-llama-cpp.mjs (the scheduled bump).
 // The pinned llama.cpp release lives in Resources/llama-cpp.lock.json:
 //   { "repo": "ggml-org/llama.cpp", "tag": "bNNNN", "assets": { "<platform>-<arch>": { "name", "url", "sha256" } } }
-import { readFileSync, writeFileSync } from 'node:fs'
+import { createWriteStream, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -76,4 +78,30 @@ export function chooseRelease(releases) {
     skipped.push(`${release.tag_name} (no ${picked.missing.join(', ')})`)
   }
   return { lock: null, missing: REQUIRED, skipped }
+}
+
+/** Download `url` to `dest`, retrying dropped connections and 5xx/429 (CI runners lose sockets now and then). */
+export async function downloadFile(url, dest, { attempts = 4, delayMs = 2000 } = {}) {
+  let last
+  for (let i = 1; i <= attempts; i++) {
+    const part = `${dest}.part`
+    try {
+      const res = await fetch(url, { redirect: 'follow' })
+      if (!res.ok || !res.body) {
+        const err = new Error(`Download failed (${res.status}) for ${url}`)
+        err.retryable = res.status >= 500 || res.status === 429
+        throw err
+      }
+      await pipeline(Readable.fromWeb(res.body), createWriteStream(part))
+      renameSync(part, dest)
+      return
+    } catch (err) {
+      last = err
+      rmSync(part, { force: true })
+      if (err.retryable === false || i === attempts) break
+      console.warn(`Download attempt ${i}/${attempts} failed (${err.cause?.code ?? err.message}); retrying`)
+      await new Promise((r) => setTimeout(r, delayMs * i))
+    }
+  }
+  throw last
 }
