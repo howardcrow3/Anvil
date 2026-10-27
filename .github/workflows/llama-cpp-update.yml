@@ -6,7 +6,7 @@ name: Update llama.cpp
 on:
   push: # BOOTSTRAP-ONLY: remove before merging. Runs the first pin from the feature branch.
     branches: [feature/llama-cpp]
-    paths: ['.github/workflows/llama-cpp-update.yml']
+    paths: ['.github/workflows/llama-cpp-update.yml', 'Desktop/scripts/*llama*']
   schedule:
     - cron: '23 6 * * *'
   workflow_dispatch:
