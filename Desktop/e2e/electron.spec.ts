@@ -26,6 +26,10 @@ test('Electron starts and supervises its own runtime, with a locked-down rendere
     env: { ...process.env, HOME: home, USERPROFILE: home, ANVIL_PROJECT_DIR: home }
   })
   mark('launched')
+  const proc = app.process()
+  proc.once('exit', (code, sig) => mark(`electron process exit code=${code} signal=${sig}`))
+  proc.once('close', () => mark('electron process close (stdio closed)'))
+  app.once('close', () => mark('playwright app close event'))
   let out = ''
   app.process().stdout?.on('data', (d) => (out += String(d)))
   app.process().stderr?.on('data', (d) => (out += String(d)))
@@ -66,7 +70,7 @@ test('Electron starts and supervises its own runtime, with a locked-down rendere
     // Diagnostic: if closing stalls, record which processes are still alive.
     const probe = setTimeout(() => {
       try {
-        mark('still closing; processes:\n' + execFileSync('ps', ['-eo', 'pid,ppid,stat,etime,args'], { encoding: 'utf8' }).split('\n').filter((l) => /electron|anvil_agent|python|PID/.test(l)).map((l) => l.slice(0, 200)).join('\n'))
+        mark('still closing; processes:\n' + execFileSync('ps', ['-eo', 'pid,ppid,stat,etime,args'], { encoding: 'utf8' }).split('\n').filter((l) => !/\[.*\]$|waagent|networkd|WALinux|ps -eo/.test(l)).map((l) => l.slice(0, 160)).join('\n'))
       } catch (e) {
         mark(`ps failed: ${e}`)
       }
