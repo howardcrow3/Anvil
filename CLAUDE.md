@@ -19,3 +19,6 @@ Cross-platform desktop AI agent app: Electron + React front end and a Python age
 - Python: Use Pydantic v2, asyncio, type hints everywhere
 - IPC: JSON-RPC 2.0 over a localhost WebSocket (token via env ANVIL_WS_TOKEN); a Unix socket is optional
 - All tools shared between Claude and local model paths
+
+## Claude Code Plugins
+- `.claude/settings.json` enables the [superpowers](https://github.com/obra/superpowers) skills plugin (TDD, systematic debugging, planning, code review). Claude Code asks to install it the first time you trust this repo.
