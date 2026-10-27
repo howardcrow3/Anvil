@@ -50,12 +50,13 @@ npm run dist   # installers: .dmg/.zip (macOS), NSIS (Windows), AppImage (Linux)
 ```
 
 `npm run bundle:runtime` (run by both) downloads a pinned, checksum-verified standalone CPython
-(python-build-standalone) and installs the agent runtime into `build/runtime/`; electron-builder ships that
+(python-build-standalone), installs the agent runtime into `build/runtime/`, and adds the pinned llama.cpp
+release (`Resources/llama-cpp.lock.json`, see `scripts/bundle-llama.mjs`) as `build/runtime/llama/`; electron-builder ships that
 folder as `resources/runtime`, which is where the packaged app looks for its Python. It must run on the OS and
 architecture you are packaging for, so build each platform on its own runner.
 
 Not set up yet: app icons (the Electron default is used), macOS signing/notarization (set `CSC_LINK`,
-`CSC_KEY_PASSWORD` and the `APPLE_*` variables), auto-update, and a bundled Ollama.
+`CSC_KEY_PASSWORD` and the `APPLE_*` variables), and auto-update.
 `npm run pack` was verified on Linux x64 only: the packaged app launched its bundled Python and connected.
 The macOS and Windows targets are configured but untested.
 

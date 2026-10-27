@@ -133,6 +133,6 @@ def _recommend_max_model_gb(total_ram_gb: int) -> int:
     """Recommend max model size based on available RAM.
 
     Rule of thumb: model should use at most ~75% of total RAM
-    to leave room for the OS, Ollama overhead, and the app itself.
+    to leave room for the OS, llama.cpp overhead, and the app itself.
     """
     return max(2, int(total_ram_gb * 0.75))

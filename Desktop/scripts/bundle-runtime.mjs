@@ -3,6 +3,7 @@
 //   runtime/python/     standalone CPython (python-build-standalone)
 //   runtime/site/       anvil_agent + its dependencies (PYTHONPATH)
 //   runtime/Resources/  data files the runtime reads (default-models.json)
+//   runtime/llama/      the pinned llama.cpp release (llama-server + libraries), see bundle-llama.mjs
 //
 // Must run on the OS/arch you are packaging for (native wheels are installed with the bundled interpreter).
 import { createHash } from 'node:crypto'
@@ -12,6 +13,8 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
+import { bundleLlama } from './bundle-llama.mjs'
+import { assetFor, readLock } from './llama-cpp-lib.mjs'
 
 const PBS_TAG = '20241206'
 const PY_VERSION = '3.12.8'
@@ -41,6 +44,8 @@ if (!triple) throw new Error(`Unsupported target ${key}. Supported: ${Object.key
 if (platform !== process.platform || arch !== process.arch) {
   throw new Error(`Cross-bundling is not supported: run this on ${key} (host is ${process.platform}-${process.arch}). Use a CI matrix to build each OS.`)
 }
+
+assetFor(readLock(), key) // fail now, not after the slow steps, if llama.cpp is not pinned for this platform
 
 const asset = `cpython-${PY_VERSION}+${PBS_TAG}-${triple}-install_only_stripped.tar.gz`
 const base = `https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}`
@@ -108,4 +113,5 @@ cpSync(join(repo, 'Resources', 'default-models.json'), join(out, 'Resources', 'd
 // Smoke test: the bundled interpreter can import the runtime.
 // (On Windows the runtime adds site/win32 and site/win32/lib too: see resolveLaunch.)
 run(python, ['-I', '-c', 'import sys; sys.path[:0] = sys.argv[1:]; import anvil_agent.main, mcp; print("runtime import ok")', site, join(site, 'win32'), join(site, 'win32', 'lib')])
+await bundleLlama({ out, cache, platform, arch })
 console.log(`Runtime bundled at ${out}`)

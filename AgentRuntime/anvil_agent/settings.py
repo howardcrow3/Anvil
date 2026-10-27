@@ -23,7 +23,7 @@ class AnvilSettings(BaseModel):
     default_model: str = "claude-sonnet-5-5"
     default_provider: str = "claude"
     permission_mode: str = "ask"
-    ollama_port: int = 11434
+    llama_server_path: str = ""  # override for the llama-server binary (default: the bundled one)
     endpoints: list[dict[str, Any]] = Field(default_factory=list)
     mcp_servers: list[dict[str, Any]] = Field(default_factory=list)
     tool_allow_list: list[str] = Field(default_factory=list)

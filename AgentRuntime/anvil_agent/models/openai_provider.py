@@ -1,4 +1,4 @@
-"""OpenAI-compatible model provider (works with Ollama, LM Studio, etc.)."""
+"""OpenAI-compatible model provider (works with llama-server, LM Studio, vLLM, etc.)."""
 
 from __future__ import annotations
 

@@ -27,16 +27,16 @@ class TestAnvilSettings:
         assert s.default_model == "claude-sonnet-5-5"
         assert s.default_provider == "claude"
         assert s.permission_mode == "ask"
-        assert s.ollama_port == 11434
+        assert s.llama_server_path == ""
         assert s.endpoints == []
         assert s.mcp_servers == []
         assert s.tool_allow_list == []
         assert s.tool_deny_list == []
 
     def test_custom_values(self):
-        s = AnvilSettings(api_key="sk-test", ollama_port=9999)
+        s = AnvilSettings(api_key="sk-test", llama_server_path="/opt/llama-server")
         assert s.api_key == "sk-test"
-        assert s.ollama_port == 9999
+        assert s.llama_server_path == "/opt/llama-server"
 
 
 class TestSettingsManager:
@@ -55,9 +55,9 @@ class TestSettingsManager:
             manager.set("totally_fake", "value")
 
     def test_update_multiple(self, manager: SettingsManager):
-        manager.update({"api_key": "sk-multi", "ollama_port": 5555})
+        manager.update({"api_key": "sk-multi", "llama_server_path": "/x/llama-server"})
         assert manager.get("api_key") == "sk-multi"
-        assert manager.get("ollama_port") == 5555
+        assert manager.get("llama_server_path") == "/x/llama-server"
 
     def test_get_all(self, manager: SettingsManager):
         result = manager.get_all()

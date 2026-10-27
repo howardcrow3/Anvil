@@ -19,7 +19,8 @@ class TestModelCatalog:
             assert entry.provider
             assert entry.parameters
             assert entry.min_ram_gb > 0
-            assert entry.ollama_tag
+            assert entry.hf_repo and "/" in entry.hf_repo
+            assert entry.quant
             assert entry.context_window > 0
 
     def test_unique_ids(self):
@@ -61,3 +62,16 @@ class TestModelCatalog:
         assert "claude-opus-5-5" in ids
         assert "claude-sonnet-5-5" in ids
         assert all(c["supports_tools"] for c in clouds)
+
+
+def test_default_models_json_matches_the_catalog():
+    """Resources/default-models.json feeds the RAM-based recommender; it must not drift from the catalog."""
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent.parent / "Resources" / "default-models.json"
+    listed = {m["id"]: m for m in json.loads(path.read_text(encoding="utf-8"))}
+    assert set(listed) == {m.id for m in MODEL_CATALOG}
+    for entry in MODEL_CATALOG:
+        assert listed[entry.id]["min_ram_gb"] == entry.min_ram_gb
+        assert listed[entry.id]["provider"] == "llamacpp"
