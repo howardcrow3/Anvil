@@ -67,16 +67,11 @@ test('Electron starts and supervises its own runtime, with a locked-down rendere
     expect(win.url()).toBe(before)
   } finally {
     mark('closing app')
-    // Diagnostic: if closing stalls, record which processes are still alive.
-    const probe = setTimeout(() => {
-      try {
-        const script = `for l in $(ls -l /proc/${process.pid}/fd 2>/dev/null | grep -o 'pipe:\\[[0-9]*\\]' | sort -u); do echo "$l"; for p in /proc/[0-9]*; do if ls -l $p/fd 2>/dev/null | grep -qF "$l"; then echo "   held by pid $(basename $p) (ppid $(awk '{print $4}' $p/stat 2>/dev/null)): $(tr '\\0' ' ' < $p/cmdline 2>/dev/null | cut -c1-140)"; fi; done; done`
-        mark('still closing; pipe holders:\n' + execFileSync('sh', ['-c', script], { encoding: 'utf8' }))
-      } catch (e) {
-        mark(`ps failed: ${e}`)
-      }
-    }, 15_000)
-    await app.close()
+    // app.close() can fail to settle on some CI runners even though Electron has already exited (code 0): Playwright
+    // never reports the close. The process exit is the real signal that the app quit, so wait on whichever comes first.
+    const exited = new Promise<void>((res) => (proc.exitCode !== null ? res() : proc.once('exit', () => res())))
+    const probe = setTimeout(() => mark(`still closing; child stdio: ${JSON.stringify(proc.stdio.map((s) => s && { destroyed: s.destroyed }))}`), 15_000)
+    await Promise.race([app.close().catch(() => {}), exited])
     clearTimeout(probe)
     mark('app closed')
   }
