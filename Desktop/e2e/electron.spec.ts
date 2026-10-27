@@ -79,9 +79,9 @@ test('Electron starts and supervises its own runtime, with a locked-down rendere
       } catch (e) {
         mark(`probe failed: ${e}`)
       }
-    }, 15_000)
+    }, 3_000) // deliberately not cleared: the stall, if any, happens after the test body (in Playwright's own teardown)
     await Promise.race([app.close().catch(() => {}), exited])
-    clearTimeout(probe)
+    void probe
     mark('app closed')
   }
   // Quitting the app stops the runtime it started.
