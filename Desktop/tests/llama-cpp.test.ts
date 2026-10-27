@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import { execFile, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -6,7 +7,7 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 // @ts-expect-error plain .mjs without types
-import { REQUIRED, TARGETS, assetFor, chooseRelease, pickAssets } from '../scripts/llama-cpp-lib.mjs'
+import { REQUIRED, TARGETS, assetFor, chooseRelease, downloadFile, pickAssets } from '../scripts/llama-cpp-lib.mjs'
 // @ts-expect-error plain .mjs without types
 import { findServerDir, isUnneededTool } from '../scripts/bundle-llama.mjs'
 
@@ -162,5 +163,39 @@ describe.skipIf(process.platform === 'win32')('bundle-llama', () => {
     expect(r.status).not.toBe(0)
     expect(r.stderr).toMatch(/Checksum mismatch/)
     expect(existsSync(join(out, 'llama'))).toBe(false)
+  })
+})
+
+describe('downloadFile', () => {
+  const serve = async (handler: (n: number, res: import('node:http').ServerResponse) => void) => {
+    let n = 0
+    const server = createServer((_req, res) => handler(++n, res))
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const port = (server.address() as { port: number }).port
+    return { url: `http://127.0.0.1:${port}/f`, hits: () => n, close: () => server.close() }
+  }
+  const dest = () => join(mkdtempSync(join(tmpdir(), 'dl-')), 'file.bin')
+
+  it('retries a dropped connection and a 503, then saves the file', async () => {
+    const s = await serve((n, res) => {
+      if (n === 1) return res.socket?.destroy()
+      if (n === 2) return res.writeHead(503).end()
+      res.writeHead(200).end('payload')
+    })
+    const out = dest()
+    await downloadFile(s.url, out, { delayMs: 1 })
+    expect(readFileSync(out, 'utf8')).toBe('payload')
+    expect(s.hits()).toBe(3)
+    expect(existsSync(`${out}.part`)).toBe(false)
+    s.close()
+  })
+
+  it('does not retry a 404 and leaves nothing behind', async () => {
+    const s = await serve((_n, res) => res.writeHead(404).end())
+    const out = dest()
+    await expect(downloadFile(s.url, out, { delayMs: 1 })).rejects.toThrow('404')
+    expect(s.hits()).toBe(1)
+    expect(existsSync(out)).toBe(false)
+    s.close()
   })
 })

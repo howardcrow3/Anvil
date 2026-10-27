@@ -3,12 +3,10 @@
 // Run on the OS/arch you are packaging for; bundle-runtime.mjs calls this too.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
-import { Readable } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
-import { assetFor, llamaDir, readLock } from './llama-cpp-lib.mjs'
+import { assetFor, downloadFile, llamaDir, readLock } from './llama-cpp-lib.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const desktop = resolve(here, '..')
@@ -50,9 +48,7 @@ export async function bundleLlama({ out, cache, platform = process.platform, arc
   const archive = join(cache, entry.name)
   if (!existsSync(archive) || sha256(archive) !== entry.sha256) {
     console.log(`Downloading llama.cpp ${lock.tag}: ${entry.name}`)
-    const res = await fetch(entry.url, { redirect: 'follow' })
-    if (!res.ok || !res.body) throw new Error(`Download failed (${res.status}) for ${entry.url}`)
-    await pipeline(Readable.fromWeb(res.body), createWriteStream(archive))
+    await downloadFile(entry.url, archive)
   }
   if (sha256(archive) !== entry.sha256) {
     rmSync(archive)

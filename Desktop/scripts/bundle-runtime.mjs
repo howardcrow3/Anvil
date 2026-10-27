@@ -8,13 +8,11 @@
 // Must run on the OS/arch you are packaging for (native wheels are installed with the bundled interpreter).
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { cpSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
-import { Readable } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import { bundleLlama } from './bundle-llama.mjs'
-import { assetFor, readLock } from './llama-cpp-lib.mjs'
+import { assetFor, downloadFile, readLock } from './llama-cpp-lib.mjs'
 
 const PBS_TAG = '20241206'
 const PY_VERSION = '3.12.8'
@@ -50,11 +48,7 @@ assetFor(readLock(), key) // fail now, not after the slow steps, if llama.cpp is
 const asset = `cpython-${PY_VERSION}+${PBS_TAG}-${triple}-install_only_stripped.tar.gz`
 const base = `https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}`
 
-async function download(url, dest) {
-  const res = await fetch(url, { redirect: 'follow' })
-  if (!res.ok || !res.body) throw new Error(`Download failed (${res.status}) for ${url}`)
-  await pipeline(Readable.fromWeb(res.body), createWriteStream(dest))
-}
+const download = downloadFile
 
 const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex')
 
