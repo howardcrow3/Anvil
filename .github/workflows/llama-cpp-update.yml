@@ -4,6 +4,9 @@ name: Update llama.cpp
 # proves it works (bundles it on every platform and runs the real llama-server against a tiny model),
 # then opens a pull request. Merging that PR ships the new engine with the next installer build.
 on:
+  push: # BOOTSTRAP-ONLY: remove before merging. Runs the first pin from the feature branch.
+    branches: [feature/llama-cpp]
+    paths: ['.github/workflows/llama-cpp-update.yml']
   schedule:
     - cron: '23 6 * * *'
   workflow_dispatch:
