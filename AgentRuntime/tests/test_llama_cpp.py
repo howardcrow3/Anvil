@@ -16,7 +16,7 @@ import pytest
 
 from anvil_agent.models.llama_cpp_provider import LlamaCppProvider
 from anvil_agent.models.types import ChatMessage
-from anvil_agent.services.llama_cpp_service import LlamaCppError, LlamaCppService, select_gguf_files
+from anvil_agent.services.llama_cpp_service import LlamaCppError, LlamaCppService, new_api_key, select_gguf_files
 from anvil_agent.services.model_catalog import MODEL_CATALOG, ModelCatalogEntry, get_model_by_id, lookup_context_window
 
 posix_only = pytest.mark.skipif(os.name != "posix", reason="uses a #! script as a fake llama-server")
@@ -429,3 +429,9 @@ async def test_model_download_and_delete_guard_rails(tmp_path):
     rt._router.register("gemma4:e2b", LlamaCppProvider(get_model_by_id("gemma4:e2b"), rt._llama), provider_type="local")
     assert "active" in (await AnvilRuntime._handle_model_delete(rt, {"model_id": "gemma4:e2b"}, None))["error"]
     await rt._llama.close()
+
+
+def test_api_keys_are_never_mistaken_for_command_line_flags():
+    keys = {new_api_key() for _ in range(2000)}
+    assert len(keys) == 2000
+    assert all(len(k) >= 32 and not k.startswith("-") and k.isalnum() for k in keys)
