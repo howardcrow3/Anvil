@@ -70,7 +70,8 @@ test('Electron starts and supervises its own runtime, with a locked-down rendere
     // Diagnostic: if closing stalls, record which processes are still alive.
     const probe = setTimeout(() => {
       try {
-        mark('still closing; processes:\n' + execFileSync('ps', ['-eo', 'pid,ppid,stat,etime,args'], { encoding: 'utf8' }).split('\n').filter((l) => !/\[.*\]$|waagent|networkd|WALinux|ps -eo/.test(l)).map((l) => l.slice(0, 160)).join('\n'))
+        const script = `for l in $(ls -l /proc/${process.pid}/fd 2>/dev/null | grep -o 'pipe:\\[[0-9]*\\]' | sort -u); do echo "$l"; for p in /proc/[0-9]*; do if ls -l $p/fd 2>/dev/null | grep -qF "$l"; then echo "   held by pid $(basename $p) (ppid $(awk '{print $4}' $p/stat 2>/dev/null)): $(tr '\\0' ' ' < $p/cmdline 2>/dev/null | cut -c1-140)"; fi; done; done`
+        mark('still closing; pipe holders:\n' + execFileSync('sh', ['-c', script], { encoding: 'utf8' }))
       } catch (e) {
         mark(`ps failed: ${e}`)
       }
