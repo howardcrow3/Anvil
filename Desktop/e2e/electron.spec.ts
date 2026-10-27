@@ -16,15 +16,24 @@ const running = (): string => {
 }
 
 test('Electron starts and supervises its own runtime, with a locked-down renderer', async () => {
+  test.setTimeout(90_000) // cold CI runners take far longer than a dev machine to import the runtime
   const { home } = JSON.parse(readFileSync(resolve(__dirname, '.state.json'), 'utf8')) as { home: string }
   const app = await electron.launch({
-    args: ['--no-sandbox', '.'],
+    args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '.'],
     cwd: resolve(__dirname, '..'),
     env: { ...process.env, HOME: home, USERPROFILE: home, ANVIL_PROJECT_DIR: home }
   })
+  let out = ''
+  app.process().stdout?.on('data', (d) => (out += String(d)))
+  app.process().stderr?.on('data', (d) => (out += String(d)))
   try {
     const win = await app.firstWindow()
-    await expect(win.getByText('Connected', { exact: true })).toBeVisible({ timeout: 40_000 })
+    try {
+      await expect(win.getByText('Connected', { exact: true })).toBeVisible({ timeout: 60_000 })
+    } catch (e) {
+      const body = await win.evaluate(() => document.body.innerText).catch((x) => `no body: ${x}`)
+      throw new Error(`never connected. page text: ${JSON.stringify(String(body).slice(0, 400))} app output: ${JSON.stringify(out.slice(-1500))} (${e})`)
+    }
 
     // Renderer isolation: no Node, but the preload bridge is present.
     expect(await win.evaluate(() => typeof (window as unknown as { require?: unknown }).require)).toBe('undefined')

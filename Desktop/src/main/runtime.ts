@@ -29,7 +29,10 @@ export function resolveLaunch(opts: {
   if (opts.packaged) {
     const root = join(opts.resourcesPath, 'runtime')
     const python = platform === 'win32' ? join(root, 'python', 'python.exe') : join(root, 'python', 'bin', 'python3')
-    return { command: python, args: common, cwd: root, env: { ...env, PYTHONPATH: join(root, 'site') } }
+    const site = join(root, 'site')
+    // pywin32 (pulled in by mcp on Windows) relies on a .pth file that `pip --target` never processes.
+    const paths = platform === 'win32' ? [site, join(site, 'win32'), join(site, 'win32', 'lib')] : [site]
+    return { command: python, args: common, cwd: root, env: { ...env, PYTHONPATH: paths.join(platform === 'win32' ? ';' : ':') } }
   }
 
   // Development: AgentRuntime lives next to Desktop/ in the repo.

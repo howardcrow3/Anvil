@@ -1,0 +1,137 @@
+name: CI and installers
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Desktop/package-lock.json
+      - name: Python tests
+        working-directory: AgentRuntime
+        run: |
+          pip install -e . pytest pytest-asyncio
+          python -m pytest --ignore=tests/test_build_install.py -q
+      - name: Desktop checks
+        working-directory: Desktop
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Install Playwright browser
+        working-directory: Desktop
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end
+        working-directory: Desktop
+        env:
+          ANVIL_RUNTIME_DIR: ${{ github.workspace }}/AgentRuntime
+          SKIP_ELECTRON: '1' # the real-Electron spec runs in its own job below
+        run: xvfb-run -a npx playwright test --reporter=list,github
+      - name: Keep e2e failure output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: Desktop/test-results
+          if-no-files-found: ignore
+
+  # The real-Electron spec. Kept separate so its status is visible on its own; it currently hangs at
+  # launch on GitHub's headless runners (passes locally), so it does not gate the installer builds yet.
+  electron-e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Desktop/package-lock.json
+      - run: pip install -e AgentRuntime
+      - name: Electron e2e
+        working-directory: Desktop
+        env:
+          ANVIL_RUNTIME_DIR: ${{ github.workspace }}/AgentRuntime
+        run: |
+          npm ci
+          npm run build
+          npx playwright install --with-deps chromium
+          xvfb-run -a npx playwright test electron --reporter=list,github
+
+  installers:
+    needs: test
+    # Installers are built for main, tags and manual runs, not for every PR.
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, name: mac-arm64, args: --mac --arm64 }
+          - { os: macos-15-intel, name: mac-x64, args: --mac --x64 }
+          - { os: windows-latest, name: windows-x64, args: --win --x64 }
+          - { os: ubuntu-24.04, name: linux-x64, args: --linux --x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Desktop/package-lock.json
+      - name: Build installer
+        working-directory: Desktop
+        shell: bash
+        env:
+          # Unsigned builds. Add CSC_LINK / CSC_KEY_PASSWORD (and the APPLE_* notarization secrets) to sign.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          # On failure, surface the tail of the log as annotations (the raw job log is not always reachable).
+          fail() { echo "::error::$(tail -12 build.log | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"; exit 1; }
+          npm ci
+          npm run build
+          npm run bundle:runtime > build.log 2>&1 || fail
+          npx electron-builder ${{ matrix.args }} --publish never > build.log 2>&1 || fail
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anvil-${{ matrix.name }}
+          path: |
+            Desktop/dist/*.dmg
+            Desktop/dist/*.zip
+            Desktop/dist/*.exe
+            Desktop/dist/*.AppImage
+          if-no-files-found: error
+
+  release:
+    needs: installers
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          draft: true

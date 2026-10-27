@@ -43,3 +43,13 @@ describe('resolveLaunch (development)', () => {
     expect(l.cwd).toBe('/rt')
   })
 })
+
+describe('packaged Windows launch', () => {
+  it('adds the pywin32 directories that pip --target does not wire up', () => {
+    const l = resolveLaunch({ ...base, packaged: true, platform: 'win32' })
+    const parts = l.env.PYTHONPATH!.split(';')
+    expect(parts).toHaveLength(3)
+    expect(parts[1]).toMatch(/win32$/)
+    expect(parts[2]).toMatch(/lib$/)
+  })
+})
