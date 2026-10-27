@@ -111,7 +111,7 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
           # On failure, surface the tail of the log as annotations (the raw job log is not always reachable).
-          fail() { echo "::error::$(tail -12 build.log | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"; exit 1; }
+          fail() { echo "::error::$(tail -40 build.log | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"; exit 1; }
           npm ci
           npm run build
           npm run bundle:runtime > build.log 2>&1 || fail
