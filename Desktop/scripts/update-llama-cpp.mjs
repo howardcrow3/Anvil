@@ -5,7 +5,7 @@
 //   node scripts/update-llama-cpp.mjs --tag b1234  pin a specific release
 // Prints a one-line JSON summary on stdout; GITHUB_TOKEN (optional) raises the API rate limit.
 import { createHash } from 'node:crypto'
-import { REPO, LOCK_PATH, pickAssets, readLock, writeLock } from './llama-cpp-lib.mjs'
+import { REPO, LOCK_PATH, chooseRelease, pickAssets, readLock, writeLock } from './llama-cpp-lib.mjs'
 
 const arg = (name) => {
   const i = process.argv.indexOf(`--${name}`)
@@ -14,15 +14,17 @@ const arg = (name) => {
 const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'anvil-llama-cpp-updater', ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}) }
 
 const tag = arg('tag')
-const url = `https://api.github.com/repos/${REPO}/releases/${tag ? `tags/${tag}` : 'latest'}`
-const res = await fetch(url, { headers })
-if (!res.ok) throw new Error(`GET ${url} failed: ${res.status} ${await res.text()}`)
-const release = await res.json()
-
-const { lock, missing } = pickAssets(release)
-if (missing.length) {
-  console.error(`llama.cpp ${lock.tag} has no usable asset for: ${missing.join(', ')}. Not adopting it; adjust TARGETS in scripts/llama-cpp-lib.mjs if the asset naming changed.`)
-  console.error(`Assets in that release: ${(release.assets ?? []).map((a) => a.name).join(', ') || '(none)'}`)
+const api = async (path) => {
+  const res = await fetch(`https://api.github.com/repos/${REPO}/${path}`, { headers })
+  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status} ${await res.text()}`)
+  return res.json()
+}
+// "releases/latest" can point at a release with no binaries, so pick the newest one that has them all.
+const chosen = tag ? { ...pickAssets(await api(`releases/tags/${tag}`)), skipped: [] } : chooseRelease(await api('releases?per_page=40'))
+const { lock, missing } = chosen
+if (!lock || missing.length) {
+  console.error(`No usable llama.cpp release${tag ? ` ${tag}` : ''}: missing ${missing.join(', ')}. Not adopting anything; adjust TARGETS in scripts/llama-cpp-lib.mjs if the asset naming changed.`)
+  if (chosen.skipped.length) console.error(`Checked: ${chosen.skipped.join('; ')}`)
   process.exit(2)
 }
 

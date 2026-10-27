@@ -6,7 +6,7 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 // @ts-expect-error plain .mjs without types
-import { REQUIRED, TARGETS, assetFor, pickAssets } from '../scripts/llama-cpp-lib.mjs'
+import { REQUIRED, TARGETS, assetFor, chooseRelease, pickAssets } from '../scripts/llama-cpp-lib.mjs'
 // @ts-expect-error plain .mjs without types
 import { findServerDir, isUnneededTool } from '../scripts/bundle-llama.mjs'
 
@@ -61,6 +61,25 @@ describe('pickAssets', () => {
     const { lock } = pickAssets(r)
     expect(lock.assets['darwin-arm64'].sha256).toBeNull()
     expect(lock.assets['darwin-x64'].sha256).toBeNull()
+  })
+})
+
+describe('chooseRelease', () => {
+  const binaryless = { tag_name: 'v0.7.0', assets: [{ name: 'nightly-tag.txt', browser_download_url: 'https://example.test/n', digest: digest('n') }] }
+
+  it('skips a newest "release" that carries no binaries and takes the first complete one', () => {
+    const { lock, skipped } = chooseRelease([binaryless, release({ tag_name: 'b7001' }), release({ tag_name: 'b7000' })])
+    expect(lock.tag).toBe('b7001')
+    expect(skipped[0]).toMatch(/v0\.7\.0/)
+  })
+
+  it('ignores drafts and prereleases, and refuses to pick anything when nothing is complete', () => {
+    const draft = { ...release({ tag_name: 'b7002' }), draft: true }
+    const pre = { ...release({ tag_name: 'b7003' }), prerelease: true }
+    expect(chooseRelease([draft, pre, release({ tag_name: 'b6999' })]).lock.tag).toBe('b6999')
+    const none = chooseRelease([binaryless])
+    expect(none.lock).toBeNull()
+    expect(none.missing.length).toBeGreaterThan(0)
   })
 })
 

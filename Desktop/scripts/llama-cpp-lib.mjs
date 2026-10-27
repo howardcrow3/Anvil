@@ -61,3 +61,19 @@ export function assetFor(lock, key) {
 }
 
 export const llamaDir = (runtimeOut) => join(runtimeOut, 'llama')
+
+/**
+ * The newest release that actually ships every platform we need. GitHub's "latest" release is not reliable
+ * here (the repo also publishes non-build releases, e.g. one that only carries nightly-tag.txt), so walk the
+ * list, newest first, and take the first usable one.
+ */
+export function chooseRelease(releases) {
+  const skipped = []
+  for (const release of releases) {
+    if (release.draft || release.prerelease) continue
+    const picked = pickAssets(release)
+    if (!picked.missing.length) return { ...picked, skipped }
+    skipped.push(`${release.tag_name} (no ${picked.missing.join(', ')})`)
+  }
+  return { lock: null, missing: REQUIRED, skipped }
+}
