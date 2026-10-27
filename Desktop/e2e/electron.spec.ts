@@ -1,6 +1,6 @@
 import { _electron as electron, expect, test } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 // Runs the real Electron app (main process, preload bridge, bundled-runtime supervisor). Needs a display:
@@ -25,17 +25,11 @@ test('Electron starts and supervises its own runtime, with a locked-down rendere
     cwd: resolve(__dirname, '..'),
     env: { ...process.env, HOME: home, USERPROFILE: home, ANVIL_PROJECT_DIR: home }
   })
-  mark('launched')
-  const proc = app.process()
-  proc.once('exit', (code, sig) => mark(`electron process exit code=${code} signal=${sig}`))
-  proc.once('close', () => mark('electron process close (stdio closed)'))
-  app.once('close', () => mark('playwright app close event'))
   let out = ''
   app.process().stdout?.on('data', (d) => (out += String(d)))
   app.process().stderr?.on('data', (d) => (out += String(d)))
   try {
     const win = await app.firstWindow()
-    mark('first window')
     try {
       await expect(win.getByText('Connected', { exact: true })).toBeVisible({ timeout: 60_000 })
     } catch (e) {
@@ -43,45 +37,37 @@ test('Electron starts and supervises its own runtime, with a locked-down rendere
       throw new Error(`never connected. page text: ${JSON.stringify(String(body).slice(0, 400))} app output: ${JSON.stringify(out.slice(-1500))} (${e})`)
     }
 
-    mark('connected')
     // Renderer isolation: no Node, but the preload bridge is present.
     expect(await win.evaluate(() => typeof (window as unknown as { require?: unknown }).require)).toBe('undefined')
     expect(await win.evaluate(() => typeof (window as unknown as { process?: unknown }).process)).toBe('undefined')
     expect(await win.evaluate(() => typeof window.anvil?.platform)).toBe('string')
     expect(running()).not.toBe('')
 
-    mark('renderer isolation ok')
     // A full chat turn through the supervised runtime.
     await win.getByRole('combobox').first().selectOption({ label: 'fake' })
-    mark('fake model selected')
     await win.getByLabel('Message').fill('say hello')
     await win.getByRole('button', { name: 'Send' }).click()
     await expect(win.locator('.msg.assistant strong', { hasText: 'world' })).toBeVisible()
-    mark('assistant replied')
     await win.screenshot({ path: resolve(__dirname, 'shots', 'electron.png') })
 
-    mark('screenshot taken')
-    // External links never navigate the app window.
+    // External links never navigate the app window; they are handed to the OS browser.
+    // Stubbed: on CI runners a real browser is installed, and the xdg-open it gets launched by inherits Electron's
+    // stdout/stderr, outliving the app, so Playwright never sees the app's stdio close and app.close() hangs.
+    await app.evaluate(({ shell }) => {
+      const g = globalThis as unknown as { __opened: string[] }
+      g.__opened = []
+      shell.openExternal = async (url: string) => {
+        g.__opened.push(url)
+      }
+    })
     const before = win.url()
     await win.evaluate(() => window.open('https://example.com'))
+    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened)).toEqual(['https://example.com/'])
     expect(win.url()).toBe(before)
+    mark('external link handed to the OS')
   } finally {
     mark('closing app')
-    // app.close() can fail to settle on some CI runners even though Electron has already exited (code 0): Playwright
-    // never reports the close. The process exit is the real signal that the app quit, so wait on whichever comes first.
-    const exited = new Promise<void>((res) => (proc.exitCode !== null ? res() : proc.once('exit', () => res())))
-    const probe = setTimeout(() => {
-      try {
-        // Daemons Electron auto-starts (dbus, at-spi) inherit its stdout/stderr and keep Playwright's close from completing.
-        const orphans = execFileSync('ps', ['-eo', 'pid,ppid,etimes,args', '--sort=etimes'], { encoding: 'utf8' })
-          .split('\n').filter((l) => /^\s*\d+\s+1\s+\d+\s/.test(l) && Number(l.trim().split(/\s+/)[2]) < 120).map((l) => l.slice(0, 170))
-        appendFileSync(resolve(__dirname, '..', 'electron-probe.txt'), `recent processes re-parented to init:\n${orphans.join('\n')}\nchild stdio: ${JSON.stringify(proc.stdio.map((s) => s && { destroyed: s.destroyed }))}\n`)
-      } catch (e) {
-        mark(`probe failed: ${e}`)
-      }
-    }, 3_000) // deliberately not cleared: the stall, if any, happens after the test body (in Playwright's own teardown)
-    await Promise.race([app.close().catch(() => {}), exited])
-    void probe
+    await app.close()
     mark('app closed')
   }
   // Quitting the app stops the runtime it started.
