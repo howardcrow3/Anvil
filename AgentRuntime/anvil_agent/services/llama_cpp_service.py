@@ -46,6 +46,11 @@ _SHARD = re.compile(r"-(\d{5})-of-(\d{5})\.gguf$", re.IGNORECASE)
 ProgressCallback = Callable[[str, int, int], None]  # (file name, bytes done, bytes total across the model)
 
 
+def new_api_key() -> str:
+    """A random bearer key for one llama-server. Hex, so it can never start with '-' and be read as a command-line flag."""
+    return secrets.token_hex(24)
+
+
 class LlamaCppError(RuntimeError):
     """A problem a user can act on (missing binary, model not downloaded, server failed to start)."""
 
@@ -312,7 +317,7 @@ class LlamaCppService:
                     "put llama-server on PATH, or set ANVIL_LLAMA_SERVER to its location."
                 )
             await self._stop_owned()
-            port, key = _free_port(), secrets.token_urlsafe(24)
+            port, key = _free_port(), new_api_key()
             args = [
                 binary, "-m", str(model), "--host", "127.0.0.1", "--port", str(port), "--api-key", key,
                 "--jinja", "-c", str(entry.loaded_context), "-ngl", "999",
