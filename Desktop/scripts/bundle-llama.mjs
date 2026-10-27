@@ -34,8 +34,10 @@ export const isUnneededTool = (name) => /^(llama-(?!server)|test-|rpc-server)/.t
 const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex')
 
 function run(cmd, args, opts = {}) {
-  const r = spawnSync(cmd, args, { stdio: 'inherit', ...opts })
-  if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed (${r.status ?? r.error})`)
+  const r = spawnSync(cmd, args, { encoding: 'utf8', ...opts })
+  if (r.stdout) process.stdout.write(r.stdout)
+  if (r.stderr) process.stderr.write(r.stderr)
+  if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed (${r.status ?? r.error})\n${String(r.stderr ?? '').trim().slice(-1500)}`)
 }
 
 export async function bundleLlama({ out, cache, platform = process.platform, arch = process.arch }) {
