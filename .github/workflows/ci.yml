@@ -27,7 +27,13 @@ jobs:
         working-directory: AgentRuntime
         run: |
           pip install -e . pytest pytest-asyncio
-          python -m pytest --ignore=tests/test_build_install.py -q
+          # Failures are also surfaced as one annotation: the raw job log is not always reachable.
+          if ! python -m pytest --ignore=tests/test_build_install.py -q -rf > pytest.log 2>&1; then
+            cat pytest.log
+            echo "::error title=Python tests::$(grep -E '^(FAILED|ERROR)|Error' pytest.log | head -c 3000 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            exit 1
+          fi
+          tail -3 pytest.log
       - name: Desktop checks
         working-directory: Desktop
         run: |
