@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path'
 // @ts-expect-error plain .mjs without types
 import { REQUIRED, TARGETS, assetFor, chooseRelease, downloadFile, pickAssets } from '../scripts/llama-cpp-lib.mjs'
 // @ts-expect-error plain .mjs without types
-import { findServerDir, isUnneededTool } from '../scripts/bundle-llama.mjs'
+import { findServerDir, isUnneededTool, tarFor } from '../scripts/bundle-llama.mjs'
 
 const digest = (c: string) => 'sha256:' + createHash('sha256').update(c).digest('hex')
 const names = [
@@ -197,5 +197,14 @@ describe('downloadFile', () => {
     expect(s.hits()).toBe(1)
     expect(existsSync(out)).toBe(false)
     s.close()
+  })
+})
+
+describe('tarFor', () => {
+  it('uses plain tar off Windows and the system bsdtar (which reads .zip) on Windows when present', () => {
+    expect(tarFor('linux')).toBe('tar')
+    expect(tarFor('darwin')).toBe('tar')
+    // Not on a Windows host here, so System32\\tar.exe does not exist: falls back to tar.
+    expect(tarFor('win32')).toBe('tar')
   })
 })

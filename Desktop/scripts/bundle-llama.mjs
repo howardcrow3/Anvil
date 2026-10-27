@@ -37,6 +37,13 @@ function run(cmd, args, opts = {}) {
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed (${r.status ?? r.error})\n${String(r.stderr ?? '').trim().slice(-1500)}`)
 }
 
+/** tar that can read .zip: on Windows that is the system bsdtar, not the GNU tar that Git Bash puts first on PATH. */
+export function tarFor(platform = process.platform) {
+  if (platform !== 'win32') return 'tar'
+  const system = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
+  return existsSync(system) ? system : 'tar'
+}
+
 export async function bundleLlama({ out, cache, platform = process.platform, arch = process.arch }) {
   if (platform !== process.platform || arch !== process.arch) {
     throw new Error(`Cross-bundling is not supported: run this on ${platform}-${arch} (host is ${process.platform}-${process.arch}).`)
@@ -59,7 +66,7 @@ export async function bundleLlama({ out, cache, platform = process.platform, arc
   const staging = mkdtempSync(join(cache, 'extract-'))
   try {
     if (entry.name.endsWith('.zip') && platform === 'linux') run('unzip', ['-q', archive, '-d', staging])
-    else run('tar', [entry.name.endsWith('.zip') ? '-xf' : '-xzf', entry.name, '-C', basename(staging)], { cwd: cache })
+    else run(tarFor(platform), [entry.name.endsWith('.zip') ? '-xf' : '-xzf', entry.name, '-C', basename(staging)], { cwd: cache })
 
     const exe = platform === 'win32' ? 'llama-server.exe' : 'llama-server'
     const srcDir = findServerDir(staging, exe)
