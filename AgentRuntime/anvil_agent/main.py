@@ -38,7 +38,8 @@ from anvil_agent.planning.manager import PlanManager
 from anvil_agent.services.model_catalog import (
     get_cloud_models, get_model_by_id, MODEL_CATALOG, BUNDLED_MODEL_ID,
 )
-from anvil_agent.services.ollama_service import OllamaService
+from anvil_agent.models.llama_cpp_provider import LlamaCppProvider
+from anvil_agent.services.llama_cpp_service import LlamaCppService
 from anvil_agent.session.manager import SessionManager
 from anvil_agent.session.search import SessionSearchDB
 from anvil_agent.settings import SettingsManager
@@ -106,7 +107,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--provider",
         default=None,
-        choices=["claude", "openai", "ollama"],
+        choices=["claude", "openai", "llamacpp"],
         help="Model provider (overrides saved default)",
     )
     parser.add_argument(
@@ -161,7 +162,8 @@ class AnvilRuntime:
         self._team_orchestrator = TeamOrchestrator(
             self._team_manager, project_dir=self._project_dir
         )
-        self._ollama = OllamaService()
+        self._llama = LlamaCppService(binary=self._settings.get("llama_server_path") or None)
+        self._downloads: dict[str, asyncio.Task[Any]] = {}
         self._perf_monitor = PerformanceMonitor()
         self._ipc = IPCServer(None if args.no_socket else args.socket_path)
 
@@ -230,14 +232,6 @@ class AnvilRuntime:
         """Initialize and start the runtime."""
         # Initialize session search DB
         await self._search_db.initialize()
-
-        # Ensure Ollama is running before registering providers
-        if not await self._ollama.is_running():
-            started = await self._ollama.start()
-            if started:
-                logger.info("Ollama started on port %d", self._ollama.port)
-            else:
-                logger.warning("Failed to start Ollama — local models will be unavailable")
 
         # Register all providers
         self._setup_providers()
@@ -348,7 +342,9 @@ class AnvilRuntime:
         await self._mcp_client.stop_all(self._tool_registry)
         await self._team_manager.stop_all()
         await self._search_db.close()
-        await self._ollama.stop()
+        for task in self._downloads.values():
+            task.cancel()
+        await self._llama.close()
         await self._ipc.stop()
         logger.info("Anvil runtime stopped")
 
@@ -383,36 +379,26 @@ class AnvilRuntime:
             )
             self._router.register(model, provider, provider_type="custom")
             active_model = model
-        elif self._args.provider == "ollama":
-            model = self._args.model or "gemma4:e2b"
+        elif self._args.provider == "llamacpp":
+            model = self._args.model or BUNDLED_MODEL_ID
             catalog_entry = get_model_by_id(model)
-            ollama_tag = catalog_entry.ollama_tag if catalog_entry else model
-            tool_support = catalog_entry.supports_tools if catalog_entry else False
-            provider = OpenAIProvider(
-                model=ollama_tag,
-                base_url=f"http://localhost:{self._settings.get('ollama_port') or 11434}/v1",
-                supports_tool_use=tool_support,
-            )
-            self._router.register(model, provider, provider_type="local")
-            active_model = model
+            if catalog_entry is None:
+                logger.error("Unknown local model %r; choose one of: %s", model, ", ".join(m.id for m in MODEL_CATALOG))
+            else:
+                self._router.register(model, LlamaCppProvider(catalog_entry, self._llama), provider_type="local")
+                active_model = model
 
-        # Always register the bundled local model as a fallback
+        # Always register the default local model as a fallback (its server starts on first use)
         bundled_entry = get_model_by_id(BUNDLED_MODEL_ID)
         if bundled_entry and not self._router.has(BUNDLED_MODEL_ID):
-            port = self._settings.get("ollama_port") or 11434
-            bundled_provider = OpenAIProvider(
-                model=bundled_entry.ollama_tag,
-                base_url=f"http://localhost:{port}/v1",
-                supports_tool_use=bundled_entry.supports_tools,
-            )
-            self._router.register(BUNDLED_MODEL_ID, bundled_provider, provider_type="local")
+            self._router.register(BUNDLED_MODEL_ID, LlamaCppProvider(bundled_entry, self._llama), provider_type="local")
 
-        # Select the active model — fall back to bundled if preferred isn't available
+        # Select the active model — fall back to the local default if the preferred one isn't available
         if self._router.has(active_model):
             self._router.select(active_model)
         elif not api_key and self._router.has(BUNDLED_MODEL_ID):
             self._router.select(BUNDLED_MODEL_ID)
-            logger.info("No API key — using bundled model %s", BUNDLED_MODEL_ID)
+            logger.info("No API key — using local model %s", BUNDLED_MODEL_ID)
 
     def _create_provider_for_model(
         self, model_id: str
@@ -430,18 +416,9 @@ class AnvilRuntime:
                     return None
                 return ("cloud", ClaudeProvider(model=model_id, api_key=api_key))
 
-        # Ollama catalog models
-        for cat_model in MODEL_CATALOG:
-            if cat_model.id == model_id:
-                port = self._settings.get("ollama_port") or 11434
-                return (
-                    "local",
-                    OpenAIProvider(
-                        model=cat_model.ollama_tag,
-                        base_url=f"http://localhost:{port}/v1",
-                        supports_tool_use=cat_model.supports_tools,
-                    ),
-                )
+        # Local GGUF models (served by llama.cpp)
+        if (cat_model := get_model_by_id(model_id)) is not None:
+            return ("local", LlamaCppProvider(cat_model, self._llama))
 
         return None
 
@@ -593,6 +570,9 @@ class AnvilRuntime:
         self._ipc.register_method("session.list", self._handle_session_list)
         self._ipc.register_method("model.list", self._handle_model_list)
         self._ipc.register_method("model.select", self._handle_model_select)
+        self._ipc.register_method("model.download", self._handle_model_download)
+        self._ipc.register_method("model.delete", self._handle_model_delete)
+        self._ipc.register_method("llama.info", self._handle_llama_info)
         self._ipc.register_method("team.create", self._handle_team_create)
         self._ipc.register_method("team.list", self._handle_team_list)
         self._ipc.register_method("team.status", self._handle_team_status)
@@ -834,13 +814,14 @@ class AnvilRuntime:
                 "active": cloud["id"] == active_id,
             })
 
-        # Local models from Ollama catalog
+        # Local models (GGUF, run by llama.cpp)
         for cat in MODEL_CATALOG:
             models.append({
                 "id": cat.id,
                 "name": cat.name,
                 "provider": "local",
-                "status": "available" if cat.id in registered_ids else "downloadable",
+                "status": "downloading" if cat.id in self._downloads else (
+                    "available" if self._llama.is_downloaded(cat) else "downloadable"),
                 "size": cat.parameters,
                 "active": cat.id == active_id,
             })
@@ -858,6 +839,56 @@ class AnvilRuntime:
             })
 
         return models
+
+    async def _handle_model_download(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        """Download a local model in the background; progress arrives as ``model.download_progress`` notifications."""
+        model_id = params.get("model_id", "")
+        entry = get_model_by_id(model_id)
+        if entry is None:
+            return {"error": f"Unknown local model: {model_id}"}
+        if self._llama.is_downloaded(entry):
+            return {"status": "ready", "model_id": model_id}
+        if model_id in self._downloads:
+            return {"status": "downloading", "model_id": model_id}
+
+        last = {"t": 0.0}
+
+        def progress(name: str, done: int, total: int) -> None:
+            now = time.monotonic()
+            if now - last["t"] >= 0.5 or done >= total:  # at most ~2 updates a second
+                last["t"] = now
+                self._broadcast_sync("model.download_progress", {"model_id": model_id, "file": name, "done": done, "total": total})
+
+        async def run() -> None:
+            try:
+                await self._llama.download(entry, progress)
+                await self._broadcast("model.download_progress", {"model_id": model_id, "status": "ready"})
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Download of %s failed: %s", model_id, exc)
+                await self._broadcast("model.download_progress", {"model_id": model_id, "status": "error", "error": str(exc)})
+            finally:
+                self._downloads.pop(model_id, None)
+
+        self._downloads[model_id] = asyncio.ensure_future(run())
+        return {"status": "downloading", "model_id": model_id}
+
+    async def _handle_model_delete(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        model_id = params.get("model_id", "")
+        entry = get_model_by_id(model_id)
+        if entry is None:
+            return {"error": f"Unknown local model: {model_id}"}
+        if model_id in self._downloads:
+            return {"error": "Download in progress"}
+        if self._router.active_model_id == model_id:
+            return {"error": "Switch to another model before deleting the active one"}
+        await self._llama.stop()  # releases the file if a server has it loaded
+        return {"status": "ok" if self._llama.delete(entry) else "not_downloaded", "model_id": model_id}
+
+    async def _handle_llama_info(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        binary = self._llama.resolve_binary()
+        return {"binary": binary, "version": await self._llama.version() if binary else None, "models_dir": str(self._llama.model_dir(MODEL_CATALOG[0]).parent)}
 
     async def _handle_model_select(
         self, params: dict[str, Any], writer: Any

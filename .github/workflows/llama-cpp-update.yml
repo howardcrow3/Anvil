@@ -1,0 +1,97 @@
+name: Update llama.cpp
+
+# Keeps the bundled llama.cpp current: pins the newest official release in Resources/llama-cpp.lock.json,
+# proves it works (bundles it on every platform and runs the real llama-server against a tiny model),
+# then opens a pull request. Merging that PR ships the new engine with the next installer build.
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release to pin (default: latest), e.g. b7000'
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    outputs:
+      changed: ${{ steps.bump.outputs.changed }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: bump
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          node Desktop/scripts/update-llama-cpp.mjs ${TAG:+--tag "$TAG"} | tee bump.json
+          echo "changed=$(node -p "JSON.parse(require('fs').readFileSync('bump.json','utf8')).changed")" >> "$GITHUB_OUTPUT"
+          echo "tag=$(node -p "JSON.parse(require('fs').readFileSync('bump.json','utf8')).tag")" >> "$GITHUB_OUTPUT"
+      - if: steps.bump.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-cpp-lock
+          path: Resources/llama-cpp.lock.json
+
+  # Every platform we ship must be able to unpack the new release and start its llama-server.
+  verify:
+    needs: bump
+    if: needs.bump.outputs.changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: llama-cpp-lock
+          path: Resources
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bundle and smoke-test llama-server
+        run: node Desktop/scripts/bundle-llama.mjs
+      - name: Run a real model through the runtime
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL -o tiny.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf \
+            || curl -fsSL -o tiny.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories15M-q4_0.gguf
+          python3 -m pip install -e AgentRuntime pytest pytest-asyncio
+          ANVIL_LLAMA_SERVER="$PWD/Desktop/build/runtime/llama/llama-server" ANVIL_TEST_GGUF="$PWD/tiny.gguf" \
+            python3 -m pytest AgentRuntime/tests/test_llama_cpp.py -q
+
+  propose:
+    needs: [bump, verify]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: llama-cpp-lock
+          path: Resources
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.bump.outputs.tag }}
+          BASE: ${{ github.ref_name }}
+        run: |
+          branch="bot/llama-cpp-$TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add Resources/llama-cpp.lock.json
+          git commit -m "Update bundled llama.cpp to $TAG"
+          git push --force origin "$branch"
+          gh pr create --base "$BASE" --head "$branch" --title "Update bundled llama.cpp to $TAG" \
+            --body "Pins llama.cpp $TAG (see Resources/llama-cpp.lock.json). The workflow bundled it on Linux, macOS (arm64, x64) and Windows, started llama-server on each, and ran a real model through the runtime on Linux. Release notes: https://github.com/ggml-org/llama.cpp/releases/tag/$TAG" \
+            || echo "::warning::Branch $branch is pushed but the pull request could not be created (repo setting 'Allow GitHub Actions to create and approve pull requests' may be off). Open it from the branch."

@@ -82,8 +82,8 @@ class TestAppBundleStructure:
         assert size > 1_000_000, f"Binary too small: {size} bytes"
         assert size < 100_000_000, f"Binary too large: {size} bytes"
 
-    def test_ollama_dir_exists(self):
-        assert (APP_BUNDLE / "Contents" / "Resources" / "ollama").is_dir()
+    def test_llama_server_bundled(self):
+        assert (APP_BUNDLE / "Contents" / "Resources" / "llama" / "llama-server").is_file()
 
     def test_default_models_json(self):
         assert (APP_BUNDLE / "Contents" / "Resources" / "default-models.json").is_file()

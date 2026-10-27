@@ -5,8 +5,11 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 
+MAX_LOADED_CONTEXT = 32768
+
+
 class ModelCatalogEntry(BaseModel):
-    """A model available in the Ollama catalog."""
+    """A local GGUF model that llama.cpp can run."""
 
     id: str
     name: str
@@ -17,7 +20,13 @@ class ModelCatalogEntry(BaseModel):
     best_for: str
     supports_tools: bool
     context_window: int
-    ollama_tag: str
+    hf_repo: str  # Hugging Face repo holding the GGUF files
+    quant: str = "Q4_K_M"  # preferred quantization; the closest available one is used if the repo lacks it
+
+    @property
+    def loaded_context(self) -> int:
+        """Context length llama-server is started with: the model's maximum, capped to keep KV-cache memory sane."""
+        return min(self.context_window, MAX_LOADED_CONTEXT)
 
 
 MODEL_CATALOG: list[ModelCatalogEntry] = [
@@ -28,11 +37,11 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         provider="google",
         parameters="2.3B effective",
         min_ram_gb=4,
-        description="Bundled — works immediately, multimodal",
+        description="Smallest default — downloads on first use, multimodal",
         best_for="Quick tasks, runs on any Mac",
         supports_tools=True,
         context_window=131072,
-        ollama_tag="gemma4:e2b",
+        hf_repo="ggml-org/gemma-4-E2B-it-GGUF",
     ),
     ModelCatalogEntry(
         id="gemma4:e4b",
@@ -44,19 +53,19 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         best_for="Balanced quality and speed",
         supports_tools=True,
         context_window=131072,
-        ollama_tag="gemma4:e4b",
+        hf_repo="ggml-org/gemma-4-E4B-it-GGUF",
     ),
     ModelCatalogEntry(
         id="gemma4:26b",
-        name="Gemma 4 27B",
+        name="Gemma 4 26B A4B",
         provider="google",
-        parameters="27B",
+        parameters="26B MoE (4B active)",
         min_ram_gb=18,
         description="High-quality multimodal reasoning",
         best_for="Complex tasks, M3/M4 Pro+",
         supports_tools=True,
         context_window=262144,
-        ollama_tag="gemma4:27b",
+        hf_repo="ggml-org/gemma-4-26B-A4B-it-GGUF",
     ),
     # Nous Research Hermes (hybrid reasoning, <tool_call> function calling)
     ModelCatalogEntry(
@@ -65,11 +74,11 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         provider="nousresearch",
         parameters="8B",
         min_ram_gb=6,
-        description="Nous Research Hermes 3 (Llama 3.1 base), official Ollama build",
+        description="Nous Research Hermes 3 (Llama 3.1 base), official GGUF build",
         best_for="Agentic tool use on 8GB Macs",
         supports_tools=True,
         context_window=131072,
-        ollama_tag="hermes3:8b",
+        hf_repo="NousResearch/Hermes-3-Llama-3.1-8B-GGUF",
     ),
     ModelCatalogEntry(
         id="hermes4.3:36b",
@@ -81,7 +90,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         best_for="Top local agent quality, 32GB+ Macs",
         supports_tools=True,
         context_window=65536,
-        ollama_tag="hf.co/bartowski/NousResearch_Hermes-4.3-36B-GGUF:Q4_K_M",
+        hf_repo="bartowski/NousResearch_Hermes-4.3-36B-GGUF",
     ),
     # Other models
     ModelCatalogEntry(
@@ -94,7 +103,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         best_for="Multilingual tasks, coding",
         supports_tools=True,
         context_window=32768,
-        ollama_tag="qwen3:8b",
+        hf_repo="Qwen/Qwen3-8B-GGUF",
     ),
     ModelCatalogEntry(
         id="llama4-scout",
@@ -106,7 +115,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         best_for="Complex reasoning tasks",
         supports_tools=True,
         context_window=131072,
-        ollama_tag="llama4:scout",
+        hf_repo="unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF",
     ),
     ModelCatalogEntry(
         id="mistral-small",
@@ -118,7 +127,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         best_for="Code generation and review",
         supports_tools=True,
         context_window=32768,
-        ollama_tag="mistral-small:24b",
+        hf_repo="bartowski/mistralai_Mistral-Small-3.2-24B-Instruct-2506-GGUF",
     ),
     ModelCatalogEntry(
         id="qwen3:32b",
@@ -130,12 +139,12 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         best_for="Complex tasks, M3/M4 Pro+",
         supports_tools=True,
         context_window=32768,
-        ollama_tag="qwen3:32b",
+        hf_repo="Qwen/Qwen3-32B-GGUF",
     ),
 ]
 
 
-# Default bundled model — available without download
+# Default local model: the one suggested first (downloaded on demand, not shipped inside the app)
 BUNDLED_MODEL_ID = "gemma4:e2b"
 
 
@@ -186,12 +195,12 @@ def get_cloud_models() -> list[dict]:
 
 
 def lookup_context_window(model: str | None) -> int | None:
-    """Context window (tokens) for a catalog, cloud or Ollama-tag model id; None if unknown."""
+    """Context window (tokens) in effect for a catalog or cloud model id; None if unknown."""
     if not model:
         return None
     for entry in MODEL_CATALOG:
-        if model in (entry.id, entry.ollama_tag):
-            return entry.context_window
+        if model == entry.id:
+            return entry.loaded_context
     for cloud in get_cloud_models():
         if cloud["id"] == model:
             return cloud["context_window"]

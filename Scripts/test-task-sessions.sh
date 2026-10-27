@@ -38,7 +38,7 @@ if [ ! -S "$SOCKET_PATH" ]; then
     exit 1
 fi
 
-sleep 2  # Give Ollama time to start
+sleep 2  # Give the runtime a moment to finish starting
 
 # Python test script that sends IPC requests
 python3 - "$SOCKET_PATH" <<'PYTHON'

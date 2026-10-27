@@ -1,4 +1,4 @@
-"""Regression tests for issues found in the connectivity code review (webhook, Ollama, MCP stdio env)."""
+"""Regression tests for issues found in the connectivity code review (webhook, llama-server, MCP stdio env)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import pytest
 from anvil_agent.gateway.adapters.webhook import WebhookAdapter, callback_url_allowed, is_loopback_host
 from anvil_agent.gateway.config import WebhookConfig
 from anvil_agent.mcp.client import MCPServerConnection
-from anvil_agent.services.ollama_service import OllamaService
 
 
 def free_port() -> int:
@@ -107,31 +106,55 @@ def test_callback_allow_list_matches_host_only():
     assert not callback_url_allowed("https://hooks.example.com/", [])
 
 
-# ── Ollama ──────────────────────────────────────────────────────────────────
+# ── llama-server ────────────────────────────────────────────────────────────
 
 
-async def test_managed_ollama_binds_loopback_and_does_not_inherit_the_ws_token(monkeypatch, tmp_path):
-    binary = tmp_path / "ollama"
-    binary.write_text("")
-    svc = OllamaService()
+async def test_llama_server_binds_loopback_with_an_api_key_and_without_the_ws_token(monkeypatch, tmp_path):
+    import json
+
+    from anvil_agent.services.llama_cpp_service import LlamaCppService
+    from anvil_agent.services.model_catalog import get_model_by_id
+
+    entry = get_model_by_id("gemma4:e2b")
+    svc = LlamaCppService(models_dir=tmp_path / "models", binary=str(tmp_path / "llama-server"), state_dir=tmp_path / "run")
+    (tmp_path / "llama-server").write_text("")
+    (tmp_path / "llama-server").chmod(0o755)
+    model_dir = svc.model_dir(entry)
+    model_dir.mkdir(parents=True)
+    (model_dir / "m.gguf").write_bytes(b"xx")
+    (model_dir / "manifest.json").write_text(
+        json.dumps({"repo": entry.hf_repo, "complete": True, "files": [{"name": "m.gguf", "size": 2}]})
+    )
     captured: dict = {}
 
     async def fake_exec(*args, **kwargs):
-        captured["env"] = kwargs["env"]
+        captured["args"], captured["env"] = list(args), kwargs["env"]
+
+        class Stderr:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
 
         class P:
-            pid = 1
+            pid = 12345
+            returncode = None
+            stderr = Stderr()
+
+            async def wait(self):
+                return 0
 
         return P()
 
     monkeypatch.setenv("ANVIL_WS_TOKEN", "secret-token")
-    monkeypatch.setattr(svc, "_check_port", AsyncMock(return_value=False))
-    monkeypatch.setattr(svc, "_is_port_in_use", AsyncMock(return_value=False))
-    monkeypatch.setattr(svc, "_resolve_binary", lambda: str(binary))
-    monkeypatch.setattr(svc, "_wait_for_ready", AsyncMock(return_value=True))
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
-    assert await svc.start() is True
-    assert captured["env"]["OLLAMA_HOST"].startswith("127.0.0.1:")
+    monkeypatch.setattr(svc, "_healthy", AsyncMock(side_effect=[False, True]))
+    base_url, key = await svc.ensure_running(entry)
+    args = captured["args"]
+    assert args[args.index("--host") + 1] == "127.0.0.1"
+    assert args[args.index("--api-key") + 1] == key and len(key) >= 24
+    assert base_url.startswith("http://127.0.0.1:")
     assert "ANVIL_WS_TOKEN" not in captured["env"]
 
 

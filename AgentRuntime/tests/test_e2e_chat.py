@@ -1,6 +1,6 @@
 """End-to-end test: start the Anvil runtime, send a chat query, verify a response arrives.
 
-Requires Ollama running with gemma4:e2b available.
+Requires llama-server and the gemma4:e2b model downloaded (see the model.download RPC).
 """
 
 from __future__ import annotations
@@ -21,17 +21,15 @@ RUNTIME_DIR = os.path.join(os.path.dirname(__file__), "..")
 PYTHON = sys.executable
 
 
-def _ollama_has_model() -> bool:
-    try:
-        import urllib.request
-        resp = urllib.request.urlopen("http://localhost:11434/api/tags", timeout=3)
-        data = json.loads(resp.read())
-        return any(m["name"].startswith("gemma4:e2b") for m in data.get("models", []))
-    except Exception:
-        return False
+def _local_model_ready() -> bool:
+    from anvil_agent.services.llama_cpp_service import LlamaCppService
+    from anvil_agent.services.model_catalog import get_model_by_id
+
+    svc = LlamaCppService()
+    return svc.resolve_binary() is not None and svc.is_downloaded(get_model_by_id("gemma4:e2b"))
 
 
-@pytest.mark.skipif(not _ollama_has_model(), reason="Ollama not running or gemma4:e2b not available")
+@pytest.mark.skipif(not _local_model_ready(), reason="llama-server not found or gemma4:e2b not downloaded")
 class TestE2EChat:
     """Integration tests that boot the full runtime and talk to it via IPC."""
 
@@ -47,7 +45,7 @@ class TestE2EChat:
                 "--socket-path", sock_path,
                 "--project-dir", str(tmp_path),
                 "--model", "gemma4:e2b",
-                "--provider", "ollama",
+                "--provider", "llamacpp",
                 "--log-level", "WARNING",
             ],
             stdout=subprocess.PIPE,

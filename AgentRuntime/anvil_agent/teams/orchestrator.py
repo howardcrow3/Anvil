@@ -37,7 +37,7 @@ class TeamOrchestrator:
             "name": "Feature Team",
             "lead": {"model": "claude-opus-5-5", "provider": "claude"},
             "teammates": [
-                {"name": "coder", "role": "implementation", "model": "mistral-small:24b", "provider": "ollama"},
+                {"name": "coder", "role": "implementation", "model": "mistral-small", "provider": "llamacpp"},
                 {"name": "reviewer", "role": "code_review", "model": "claude-sonnet-5-5", "provider": "claude"},
             ],
             "tasks": [
