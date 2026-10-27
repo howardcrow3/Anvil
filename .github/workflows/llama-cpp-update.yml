@@ -72,11 +72,14 @@ jobs:
       - name: Run a real model through the runtime
         if: runner.os == 'Linux'
         run: |
-          curl -fsSL -o tiny.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf \
-            || curl -fsSL -o tiny.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories15M-q4_0.gguf
-          python3 -m pip install -e AgentRuntime pytest pytest-asyncio
-          ANVIL_LLAMA_SERVER="$PWD/Desktop/build/runtime/llama/llama-server" ANVIL_TEST_GGUF="$PWD/tiny.gguf" \
-            python3 -m pytest AgentRuntime/tests/test_llama_cpp.py -q
+          fail() { echo "::error title=real-model test::$(tail -c 2500 real.log | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"; exit 1; }
+          {
+            curl -fsSL -o tiny.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf \
+              || curl -fsSL -o tiny.gguf https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories15M-q4_0.gguf
+            python3 -m pip install -e AgentRuntime pytest pytest-asyncio
+            ANVIL_LLAMA_SERVER="$PWD/Desktop/build/runtime/llama/llama-server" ANVIL_TEST_GGUF="$PWD/tiny.gguf" \
+              python3 -m pytest AgentRuntime/tests/test_llama_cpp.py -q
+          } > real.log 2>&1 || fail
 
   propose:
     needs: [bump, verify]
