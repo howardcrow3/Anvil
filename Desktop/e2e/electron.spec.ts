@@ -1,6 +1,6 @@
 import { _electron as electron, expect, test } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 // Runs the real Electron app (main process, preload bridge, bundled-runtime supervisor). Needs a display:
@@ -75,7 +75,7 @@ test('Electron starts and supervises its own runtime, with a locked-down rendere
         // Daemons Electron auto-starts (dbus, at-spi) inherit its stdout/stderr and keep Playwright's close from completing.
         const orphans = execFileSync('ps', ['-eo', 'pid,ppid,etimes,args', '--sort=etimes'], { encoding: 'utf8' })
           .split('\n').filter((l) => /^\s*\d+\s+1\s+\d+\s/.test(l) && Number(l.trim().split(/\s+/)[2]) < 120).map((l) => l.slice(0, 170))
-        mark(`still closing; recent processes re-parented to init:\n${orphans.join('\n')}\nchild stdio: ${JSON.stringify(proc.stdio.map((s) => s && { destroyed: s.destroyed }))}`)
+        appendFileSync(resolve(__dirname, '..', 'electron-probe.txt'), `recent processes re-parented to init:\n${orphans.join('\n')}\nchild stdio: ${JSON.stringify(proc.stdio.map((s) => s && { destroyed: s.destroyed }))}\n`)
       } catch (e) {
         mark(`probe failed: ${e}`)
       }

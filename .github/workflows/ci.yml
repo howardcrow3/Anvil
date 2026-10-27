@@ -92,8 +92,10 @@ jobs:
             const walk = (s) => { (s.specs || []).forEach((sp) => sp.tests.forEach((t) => t.results.forEach((x) => { errs.push('stdout:\\n' + (x.stdout || []).map((o) => o.text || '').join('')); (x.errors || []).forEach((e) => errs.push(e.message)) }))); (s.suites || []).forEach(walk); };
             (r.suites || []).forEach(walk);
             const text = errs.join('\n---\n').replace(/\u001b\[[0-9;]*m/g, '').slice(0, 3800);
-            console.log(text);
-            console.log('::error title=electron failure::' + text.replace(/%/g, '%25').replace(/\n/g, '%0A'));
+            const probe = require('fs').existsSync('electron-probe.txt') ? '\\nprobe:\\n' + require('fs').readFileSync('electron-probe.txt', 'utf8') : '';
+            const text2 = (text + probe).slice(0, 3800);
+            console.log(text2);
+            console.log('::error title=electron failure::' + text2.replace(/%/g, '%25').replace(/\n/g, '%0A'));
           " || true
 
   installers:
