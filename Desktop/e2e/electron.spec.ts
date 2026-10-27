@@ -70,7 +70,16 @@ test('Electron starts and supervises its own runtime, with a locked-down rendere
     // app.close() can fail to settle on some CI runners even though Electron has already exited (code 0): Playwright
     // never reports the close. The process exit is the real signal that the app quit, so wait on whichever comes first.
     const exited = new Promise<void>((res) => (proc.exitCode !== null ? res() : proc.once('exit', () => res())))
-    const probe = setTimeout(() => mark(`still closing; child stdio: ${JSON.stringify(proc.stdio.map((s) => s && { destroyed: s.destroyed }))}`), 15_000)
+    const probe = setTimeout(() => {
+      try {
+        // Daemons Electron auto-starts (dbus, at-spi) inherit its stdout/stderr and keep Playwright's close from completing.
+        const orphans = execFileSync('ps', ['-eo', 'pid,ppid,etimes,args', '--sort=etimes'], { encoding: 'utf8' })
+          .split('\n').filter((l) => /^\s*\d+\s+1\s+\d+\s/.test(l) && Number(l.trim().split(/\s+/)[2]) < 120).map((l) => l.slice(0, 170))
+        mark(`still closing; recent processes re-parented to init:\n${orphans.join('\n')}\nchild stdio: ${JSON.stringify(proc.stdio.map((s) => s && { destroyed: s.destroyed }))}`)
+      } catch (e) {
+        mark(`probe failed: ${e}`)
+      }
+    }, 15_000)
     await Promise.race([app.close().catch(() => {}), exited])
     clearTimeout(probe)
     mark('app closed')
