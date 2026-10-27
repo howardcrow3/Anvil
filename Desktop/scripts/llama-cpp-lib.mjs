@@ -70,7 +70,7 @@ export const llamaDir = (runtimeOut) => join(runtimeOut, 'llama')
 export function chooseRelease(releases) {
   const skipped = []
   for (const release of releases) {
-    if (release.draft || release.prerelease) continue
+    if (release.draft) continue // llama.cpp publishes every build (bNNNN) as a prerelease, so those count
     const picked = pickAssets(release)
     if (!picked.missing.length) return { ...picked, skipped }
     skipped.push(`${release.tag_name} (no ${picked.missing.join(', ')})`)

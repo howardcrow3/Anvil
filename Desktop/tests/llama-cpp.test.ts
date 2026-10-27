@@ -73,10 +73,11 @@ describe('chooseRelease', () => {
     expect(skipped[0]).toMatch(/v0\.7\.0/)
   })
 
-  it('ignores drafts and prereleases, and refuses to pick anything when nothing is complete', () => {
+  it('ignores drafts but accepts prereleases (llama.cpp publishes every build as one), and refuses to pick anything when nothing is complete', () => {
     const draft = { ...release({ tag_name: 'b7002' }), draft: true }
     const pre = { ...release({ tag_name: 'b7003' }), prerelease: true }
-    expect(chooseRelease([draft, pre, release({ tag_name: 'b6999' })]).lock.tag).toBe('b6999')
+    expect(chooseRelease([draft, release({ tag_name: 'b6999' })]).lock.tag).toBe('b6999')
+    expect(chooseRelease([pre, release({ tag_name: 'b6999' })]).lock.tag).toBe('b7003')
     const none = chooseRelease([binaryless])
     expect(none.lock).toBeNull()
     expect(none.missing.length).toBeGreaterThan(0)
