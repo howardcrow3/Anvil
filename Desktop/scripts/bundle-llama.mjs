@@ -4,8 +4,7 @@
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
@@ -60,12 +59,11 @@ export async function bundleLlama({ out, cache, platform = process.platform, arc
     throw new Error(`Checksum mismatch for ${entry.name}: expected ${entry.sha256}. The download was removed; re-run, or update the lock if the release was re-published.`)
   }
 
-  const staging = mkdtempSync(join(tmpdir(), 'anvil-llama-'))
+  // Inside the cache dir, so tar can be given short relative names (GNU tar on Windows reads "C:\\..." as host:file).
+  const staging = mkdtempSync(join(cache, 'extract-'))
   try {
-    // Relative paths with cwd=staging: GNU tar (Git for Windows) reads "C:\..." as host:file.
-    const rel = relative(staging, archive).split(sep).join('/')
     if (entry.name.endsWith('.zip') && platform === 'linux') run('unzip', ['-q', archive, '-d', staging])
-    else run('tar', [entry.name.endsWith('.zip') ? '-xf' : '-xzf', rel], { cwd: staging })
+    else run('tar', [entry.name.endsWith('.zip') ? '-xf' : '-xzf', entry.name, '-C', basename(staging)], { cwd: cache })
 
     const exe = platform === 'win32' ? 'llama-server.exe' : 'llama-server'
     const srcDir = findServerDir(staging, exe)
