@@ -63,7 +63,16 @@ test('Electron starts and supervises its own runtime, with a locked-down rendere
     expect(win.url()).toBe(before)
   } finally {
     mark('closing app')
+    // Diagnostic: if closing stalls, record which processes are still alive.
+    const probe = setTimeout(() => {
+      try {
+        mark('still closing; processes:\n' + execFileSync('ps', ['-eo', 'pid,ppid,stat,etime,args'], { encoding: 'utf8' }).split('\n').filter((l) => /electron|anvil_agent|python|PID/.test(l)).map((l) => l.slice(0, 200)).join('\n'))
+      } catch (e) {
+        mark(`ps failed: ${e}`)
+      }
+    }, 15_000)
     await app.close()
+    clearTimeout(probe)
     mark('app closed')
   }
   // Quitting the app stops the runtime it started.
