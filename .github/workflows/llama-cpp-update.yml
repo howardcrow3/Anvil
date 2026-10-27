@@ -37,7 +37,7 @@ jobs:
         run: |
           # Errors become one annotation: the raw job log is not always reachable.
           if ! node Desktop/scripts/update-llama-cpp.mjs ${TAG:+--tag "$TAG"} > bump.json 2> bump.err; then
-            echo "::error title=llama.cpp bump failed::$(head -c 1500 bump.err | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            echo "::error title=llama.cpp bump failed::$(head -c 3500 bump.err | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
             exit 1
           fi
           cat bump.json

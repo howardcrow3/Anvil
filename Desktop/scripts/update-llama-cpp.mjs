@@ -22,6 +22,7 @@ const release = await res.json()
 const { lock, missing } = pickAssets(release)
 if (missing.length) {
   console.error(`llama.cpp ${lock.tag} has no usable asset for: ${missing.join(', ')}. Not adopting it; adjust TARGETS in scripts/llama-cpp-lib.mjs if the asset naming changed.`)
+  console.error(`Assets in that release: ${(release.assets ?? []).map((a) => a.name).join(', ') || '(none)'}`)
   process.exit(2)
 }
 
