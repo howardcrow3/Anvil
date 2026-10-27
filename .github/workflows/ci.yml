@@ -58,8 +58,7 @@ jobs:
           path: Desktop/test-results
           if-no-files-found: ignore
 
-  # The real-Electron spec. Kept separate so its status is visible on its own; it currently hangs at
-  # launch on GitHub's headless runners (passes locally), so it does not gate the installer builds yet.
+  # The real-Electron spec. Kept as its own job so its status is visible on its own; it gates the installer builds.
   electron-e2e:
     runs-on: ubuntu-24.04
     steps:
@@ -97,7 +96,7 @@ jobs:
           " || true
 
   installers:
-    needs: test
+    needs: [test, electron-e2e]
     # Installers are built for main, tags and manual runs, not for every PR.
     if: github.event_name != 'pull_request'
     strategy:
