@@ -1,0 +1,36 @@
+name: Check model catalog
+
+# Confirms every model in the catalog still exists on Hugging Face with a usable GGUF, and that min_ram_gb is
+# plausible for what would actually be downloaded. Repos can move or vanish without any commit here, so this
+# also runs weekly. Errors fail the run; warnings (e.g. min_ram_gb too low) show as annotations.
+on:
+  schedule:
+    - cron: '41 7 * * 1'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'AgentRuntime/anvil_agent/services/model_catalog.py'
+      - 'AgentRuntime/anvil_agent/services/catalog_check.py'
+      - '.github/workflows/catalog-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  catalog:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e AgentRuntime
+      - name: Check every catalog entry against Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }} # optional: only needed for gated repos
+          CATALOG_STRICT: ${{ github.event_name == 'pull_request' && '1' || '' }} # a catalog change must not add warnings
+        run: python -m anvil_agent.services.catalog_check | tee catalog.txt
+      - name: Summary
+        if: always()
+        run: |
+          { echo '### Model catalog'; echo '```'; cat catalog.txt 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
