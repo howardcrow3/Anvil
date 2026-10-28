@@ -58,8 +58,7 @@ jobs:
           path: Desktop/test-results
           if-no-files-found: ignore
 
-  # The real-Electron spec. Kept separate so its status is visible on its own; it currently hangs at
-  # launch on GitHub's headless runners (passes locally), so it does not gate the installer builds yet.
+  # The real-Electron spec. Kept as its own job so its status is visible on its own; it gates the installer builds.
   electron-e2e:
     runs-on: ubuntu-24.04
     steps:
@@ -81,10 +80,23 @@ jobs:
           npm ci
           npm run build
           npx playwright install --with-deps chromium
-          xvfb-run -a npx playwright test electron --reporter=list,github
+          PLAYWRIGHT_JSON_OUTPUT_NAME=pw-electron.json xvfb-run -a npx playwright test electron --reporter=list,github,json
+      - name: Show the Electron failure
+        if: failure()
+        working-directory: Desktop
+        run: |
+          node -e "
+            const r = JSON.parse(require('fs').readFileSync('pw-electron.json', 'utf8'));
+            const errs = [];
+            const walk = (s) => { (s.specs || []).forEach((sp) => sp.tests.forEach((t) => t.results.forEach((x) => { errs.push('stdout:\\n' + (x.stdout || []).map((o) => o.text || '').join('')); (x.errors || []).forEach((e) => errs.push(e.message)) }))); (s.suites || []).forEach(walk); };
+            (r.suites || []).forEach(walk);
+            const text = errs.join('\n---\n').replace(/\u001b\[[0-9;]*m/g, '').slice(0, 3800);
+            console.log(text);
+            console.log('::error title=electron failure::' + text.replace(/%/g, '%25').replace(/\n/g, '%0A'));
+          " || true
 
   installers:
-    needs: test
+    needs: [test, electron-e2e]
     # Installers are built for main, tags and manual runs, not for every PR.
     if: github.event_name != 'pull_request'
     strategy:

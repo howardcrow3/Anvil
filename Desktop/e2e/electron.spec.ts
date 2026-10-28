@@ -17,6 +17,8 @@ const running = (): string => {
 
 test('Electron starts and supervises its own runtime, with a locked-down renderer', async () => {
   test.setTimeout(90_000) // cold CI runners take far longer than a dev machine to import the runtime
+  const t0 = Date.now()
+  const mark = (m: string) => console.log(`[+${((Date.now() - t0) / 1000).toFixed(1)}s] ${m}`) // shows how far a timed-out run got
   const { home } = JSON.parse(readFileSync(resolve(__dirname, '.state.json'), 'utf8')) as { home: string }
   const app = await electron.launch({
     args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '.'],
@@ -48,12 +50,25 @@ test('Electron starts and supervises its own runtime, with a locked-down rendere
     await expect(win.locator('.msg.assistant strong', { hasText: 'world' })).toBeVisible()
     await win.screenshot({ path: resolve(__dirname, 'shots', 'electron.png') })
 
-    // External links never navigate the app window.
+    // External links never navigate the app window; they are handed to the OS browser.
+    // Stubbed: on CI runners a real browser is installed, and the xdg-open it gets launched by inherits Electron's
+    // stdout/stderr, outliving the app, so Playwright never sees the app's stdio close and app.close() hangs.
+    await app.evaluate(({ shell }) => {
+      const g = globalThis as unknown as { __opened: string[] }
+      g.__opened = []
+      shell.openExternal = async (url: string) => {
+        g.__opened.push(url)
+      }
+    })
     const before = win.url()
     await win.evaluate(() => window.open('https://example.com'))
+    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened)).toEqual(['https://example.com/'])
     expect(win.url()).toBe(before)
+    mark('external link handed to the OS')
   } finally {
+    mark('closing app')
     await app.close()
+    mark('app closed')
   }
   // Quitting the app stops the runtime it started.
   await expect.poll(running, { timeout: 15_000 }).toBe('')
