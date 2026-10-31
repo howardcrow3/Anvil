@@ -1,31 +1,31 @@
 {
   "repo": "ggml-org/llama.cpp",
-  "tag": "b11913",
+  "tag": "b12020",
   "assets": {
     "darwin-arm64": {
-      "name": "llama-b11913-bin-macos-arm64.tar.gz",
-      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11913/llama-b11913-bin-macos-arm64.tar.gz",
-      "sha256": "d5b7b56c275624be373d2ab064b68dee2a3571e852657482cce75cbb5cb143b2"
+      "name": "llama-b12020-bin-macos-arm64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12020/llama-b12020-bin-macos-arm64.tar.gz",
+      "sha256": "b630ebd5da34b02e86f7294dd5743aba842a0a02cb023130debd64599721c541"
     },
     "darwin-x64": {
-      "name": "llama-b11913-bin-macos-x64.tar.gz",
-      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11913/llama-b11913-bin-macos-x64.tar.gz",
-      "sha256": "b19a9c08544114b02e8e3dd688ed83f6983339e56d85aa455dd8a06df51c7c30"
+      "name": "llama-b12020-bin-macos-x64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12020/llama-b12020-bin-macos-x64.tar.gz",
+      "sha256": "774fba46a668cf6c94eb8d515b2dfb5897878ab6da08943585f487a1dd1aa6a0"
     },
     "linux-x64": {
-      "name": "llama-b11913-bin-ubuntu-x64.tar.gz",
-      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11913/llama-b11913-bin-ubuntu-x64.tar.gz",
-      "sha256": "c670ad826f59478db859c9d4a0d931ab9eb653f22b7e0adebd70816c4092aab5"
+      "name": "llama-b12020-bin-ubuntu-x64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12020/llama-b12020-bin-ubuntu-x64.tar.gz",
+      "sha256": "1b69032f9ab60dc6aa909689fda941fa1b9162f6ab46b863582d5649d96ac6be"
     },
     "linux-arm64": {
-      "name": "llama-b11913-bin-ubuntu-arm64.tar.gz",
-      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11913/llama-b11913-bin-ubuntu-arm64.tar.gz",
-      "sha256": "bb4f3daf4633fcac5eff5ea055c3ca9df3f4cc074d1d848f1c5abcdf4e435d89"
+      "name": "llama-b12020-bin-ubuntu-arm64.tar.gz",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12020/llama-b12020-bin-ubuntu-arm64.tar.gz",
+      "sha256": "6cc95b52eb408b881df43242854a39a97f73cbaeb23337fef6cebe7a679b8125"
     },
     "win32-x64": {
-      "name": "llama-b11913-bin-win-cpu-x64.zip",
-      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11913/llama-b11913-bin-win-cpu-x64.zip",
-      "sha256": "55b31ccaf398e90457cfe28087297f5f3fdf1e3bfa7a28e1108f13d0af8e4621"
+      "name": "llama-b12020-bin-win-cpu-x64.zip",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12020/llama-b12020-bin-win-cpu-x64.zip",
+      "sha256": "07e81782f5a16c7ffef42403183808e02f271c9ece3aa2d64040b2620ae8d519"
     }
   }
 }
