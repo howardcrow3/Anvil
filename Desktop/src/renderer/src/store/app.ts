@@ -3,10 +3,11 @@ import type { RuntimeState } from '../../../shared/types'
 import { call, rpc } from '@/lib/api'
 import { bridge, resolveRuntime, watchRuntime } from '@/lib/bridge'
 import type { ConnectionState } from '@/lib/rpc'
-import type { ChatEvent, ModelInfo, PermissionRequest, SessionMeta } from '@/lib/types'
+import type { ChatEvent, DownloadProgressEvent, ModelInfo, PermissionRequest, SessionMeta } from '@/lib/types'
+import { applyDownloadEvent, seedFromModels, type Downloads } from './downloadState'
 import { addUserMessage, applyEvent, fromHistory, initialChat, toPermissionRequest, type ChatState } from './chatState'
 
-export type SettingsTab = 'general' | 'apikey' | 'endpoints' | 'permissions' | 'mcp'
+export type SettingsTab = 'general' | 'apikey' | 'endpoints' | 'models' | 'permissions' | 'mcp'
 export type View = 'chat' | 'projects' | 'kanban' | 'teams' | 'skills'
 export type Theme = 'system' | 'light' | 'dark'
 
@@ -16,6 +17,7 @@ interface AppStore {
   sessions: SessionMeta[]
   currentSessionId: string | null
   models: ModelInfo[]
+  downloads: Downloads
   settings: Record<string, unknown>
   planning: boolean
   chat: ChatState
@@ -33,6 +35,9 @@ interface AppStore {
   refreshSettings(): Promise<void>
   setSetting(key: string, value: unknown): Promise<void>
   selectModel(id: string): Promise<void>
+  downloadModel(id: string): Promise<void>
+  cancelDownload(id: string): Promise<void>
+  deleteModel(id: string): Promise<void>
   newChat(): void
   openSession(id: string): Promise<void>
   send(text: string): Promise<void>
@@ -68,6 +73,7 @@ export const useApp = create<AppStore>((set, get) => ({
   sessions: [],
   currentSessionId: null,
   models: [],
+  downloads: {},
   settings: {},
   planning: false,
   chat: initialChat,
@@ -108,6 +114,11 @@ export const useApp = create<AppStore>((set, get) => ({
           if (!document.hasFocus()) void bridge()?.notify('Anvil', 'Response ready')
         }
       }),
+      rpc.on('model.download_progress', (params) => {
+        const event = params as unknown as DownloadProgressEvent
+        set((s) => ({ downloads: applyDownloadEvent(s.downloads, event, Date.now()) }))
+        if (event.status) void get().refreshModels() // ready / cancelled / error change what the lists show
+      }),
       // Delegated subagents ask for permission through their own notification; without this the
       // child would wait out its 5-minute timeout and the user would never see a prompt.
       rpc.on('subagent.permission_request', (params) => {
@@ -137,7 +148,8 @@ export const useApp = create<AppStore>((set, get) => ({
 
   async refreshModels() {
     try {
-      set({ models: await call<ModelInfo[]>('model.list') })
+      const models = await call<ModelInfo[]>('model.list')
+      set((s) => ({ models, downloads: seedFromModels(models, Date.now(), s.downloads) }))
     } catch (e) {
       set({ notice: `Couldn't load models: ${message(e)}` })
     }
@@ -167,6 +179,35 @@ export const useApp = create<AppStore>((set, get) => ({
   async selectModel(id) {
     try {
       await call('model.select', { model_id: id })
+      await get().refreshModels()
+    } catch (e) {
+      set({ notice: message(e) })
+    }
+  },
+
+  async downloadModel(id) {
+    try {
+      await call('model.download', { model_id: id })
+      set((s) => ({ downloads: applyDownloadEvent(s.downloads, { model_id: id, done: 0, total: 0 }, Date.now()) }))
+      await get().refreshModels()
+    } catch (e) {
+      set({ notice: message(e) })
+    }
+  },
+
+  async cancelDownload(id) {
+    try {
+      await call('model.cancel_download', { model_id: id })
+      set((s) => ({ downloads: applyDownloadEvent(s.downloads, { model_id: id, status: 'cancelled' }, Date.now()) }))
+      await get().refreshModels()
+    } catch (e) {
+      set({ notice: message(e) })
+    }
+  },
+
+  async deleteModel(id) {
+    try {
+      await call('model.delete', { model_id: id })
       await get().refreshModels()
     } catch (e) {
       set({ notice: message(e) })
