@@ -63,6 +63,6 @@ The macOS and Windows targets are configured but untested.
 ## Status
 
 Ported from the SwiftUI app (which has been removed): chat (streaming markdown, tool calls, permission
-prompts, plan mode), sessions, model selection, settings (general, API key, custom endpoints, permissions,
-MCP), projects, kanban, teams and skills. Still to port: agents view, gateway/hooks/system/update settings,
-onboarding and model download, git and file panels.
+prompts, plan mode), sessions, model selection, settings (general, API key, models, custom endpoints,
+permissions, MCP), local model download/cancel/delete, projects, kanban, teams and skills. Still to port: agents
+view, gateway/hooks/system/update settings, onboarding, git and file panels.
