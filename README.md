@@ -168,4 +168,7 @@ tools shared by the Claude and local-model paths. Open a pull request against `m
 
 ## License
 
-MIT
+Anvil is commercial software. Copyright © 2026 High Turtle LLC. All rights reserved. Use requires a license from
+High Turtle LLC; see [`LICENSE`](LICENSE). The source is publicly viewable, which does not grant permission to run,
+copy, modify or distribute it. Third-party components keep their own licenses; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

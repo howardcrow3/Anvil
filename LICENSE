@@ -1,0 +1,105 @@
+ANVIL COMMERCIAL LICENSE
+
+Copyright (c) 2026 High Turtle LLC. All rights reserved.
+
+"Anvil" means the software in this repository and its installers, in source and
+binary form, together with its documentation (the "Software"). "High Turtle"
+means High Turtle LLC.
+
+1. OWNERSHIP
+
+   The Software is licensed, not sold. High Turtle and its licensors own all
+   right, title and interest in the Software, including all intellectual
+   property rights. No rights are granted except as stated in this license.
+
+2. LICENSE GRANT
+
+   Subject to this license and to payment of any applicable fees, High Turtle
+   grants you a non-exclusive, non-transferable, non-sublicensable, revocable
+   license to install and use the Software for your own internal purposes, in
+   the quantity, for the term and on the terms set out in a written agreement,
+   order form or invoice from High Turtle (an "Order"). Without an Order, no
+   license to use the Software is granted, except as stated in section 3.
+
+3. VIEWING THE SOURCE CODE
+
+   This repository is publicly visible. Anyone may view the source code, and
+   may fork the repository on GitHub as permitted by GitHub's Terms of Service,
+   solely to read and evaluate it. Viewing or forking does not grant any right
+   to run the Software for any other purpose, or any right described in
+   section 4.
+
+4. RESTRICTIONS
+
+   Unless High Turtle gives you prior written permission, you may not:
+
+   (a) copy, modify, or create derivative works of the Software;
+   (b) distribute, sell, rent, lease, lend, sublicense, host, or otherwise make
+       the Software available to a third party, including as a hosted or
+       managed service;
+   (c) use the Software, or any part of it, to build, train or improve a
+       product or service that competes with the Software;
+   (d) remove or alter any copyright, license or attribution notice;
+   (e) circumvent any license, usage or security restriction in the Software;
+   (f) use the Software in violation of applicable law.
+
+   Where applicable law gives you a right that this section cannot lawfully
+   limit, you may exercise that right only to the extent the law requires.
+
+5. THIRD-PARTY COMPONENTS
+
+   The Software includes, and downloads at your request, third-party software
+   and models, including llama.cpp, Hugging Face model files, npm and Python
+   packages, and code adapted from Hermes Agent. These are licensed to you
+   under their own terms, which this license does not change, and which apply
+   to them in place of this license. See THIRD_PARTY_NOTICES.md and the license
+   files shipped with those components. Model files you download are governed
+   by their publishers' licenses, and you are responsible for complying with
+   them.
+
+6. YOUR DATA AND SERVICES
+
+   The Software runs on your computer. Content you create or process with it,
+   including prompts, files and outputs, remains yours. If you connect the
+   Software to a third-party service (for example the Anthropic API or an
+   OpenAI-compatible endpoint), that service's terms and privacy practices
+   apply to what you send it, and you are responsible for your use of it.
+
+7. TERMINATION
+
+   This license ends automatically if you breach it. High Turtle may also
+   terminate it as set out in your Order. On termination you must stop using
+   the Software and delete all copies in your possession or control. Sections
+   1, 4, 5, 8, 9 and 10 survive termination.
+
+8. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY
+   KIND, EXPRESS OR IMPLIED, INCLUDING THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT, EXCEPT AS
+   STATED IN YOUR ORDER. The Software uses AI models whose output can be
+   inaccurate, and it can read and write files and run commands on your
+   computer when you approve it. You are responsible for reviewing what it does.
+
+9. LIMITATION OF LIABILITY
+
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, HIGH TURTLE WILL NOT BE LIABLE FOR
+   ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR PUNITIVE DAMAGES, OR FOR
+   LOSS OF PROFITS, REVENUE, DATA OR GOODWILL, ARISING OUT OF OR RELATED TO THE
+   SOFTWARE OR THIS LICENSE, EVEN IF ADVISED OF THEIR POSSIBILITY. HIGH TURTLE'S
+   TOTAL LIABILITY FOR ALL CLAIMS RELATING TO THE SOFTWARE WILL NOT EXCEED THE
+   AMOUNT YOU PAID HIGH TURTLE FOR THE SOFTWARE IN THE TWELVE MONTHS BEFORE THE
+   CLAIM AROSE, OR USD 100 IF YOU PAID NOTHING. THESE LIMITS DO NOT APPLY TO
+   LIABILITY THAT CANNOT BE LIMITED BY LAW.
+
+10. GENERAL
+
+    This license, together with any Order, is the entire agreement about the
+    Software and replaces earlier statements about its licensing, including any
+    reference to the MIT License in earlier versions of the README. If a
+    provision is unenforceable, the rest remains in effect. High Turtle's
+    failure to enforce a provision is not a waiver. You may not assign this
+    license without High Turtle's written consent; High Turtle may assign it to
+    a successor to its business.
+
+For licensing inquiries or to obtain an Order, contact High Turtle LLC.
