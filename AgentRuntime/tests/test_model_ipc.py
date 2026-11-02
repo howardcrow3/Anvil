@@ -83,3 +83,84 @@ async def test_download_rejects_second_concurrent_download(tmp_path):
         assert "another download" in result["error"].lower()
     finally:
         rt._downloads[other.id].cancel()
+
+
+# ── cancel ──────────────────────────────────────────────────────────────────
+
+import hashlib  # noqa: E402
+
+import httpx  # noqa: E402
+
+FILE = f"m-{SMALL.quant}.gguf"
+BODY = bytes(range(256)) * 40
+
+
+class Stalling(httpx.AsyncByteStream):
+    """Sends a first chunk, signals, then waits (or fails) before the rest."""
+
+    def __init__(self, started: asyncio.Event, fail: bool = False) -> None:
+        self.started, self.fail = started, fail
+
+    async def __aiter__(self):
+        yield BODY[:2048]
+        self.started.set()
+        if self.fail:
+            raise httpx.ReadError("connection dropped")
+        await asyncio.Event().wait()  # until cancelled
+
+
+def stalling_hub(started: asyncio.Event, fail: bool = False) -> httpx.AsyncClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/tree/main"):
+            return httpx.Response(200, json=[{"type": "file", "path": FILE, "size": len(BODY), "lfs": {"oid": hashlib.sha256(BODY).hexdigest()}}])
+        return httpx.Response(200, stream=Stalling(started, fail))
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+async def wait_for(cond, timeout=5.0):
+    async with asyncio.timeout(timeout):
+        while not cond():
+            await asyncio.sleep(0.01)
+
+
+async def start_download(tmp_path, fail=False):
+    rt, events = make_runtime(tmp_path, 512)
+    started = asyncio.Event()
+    rt._llama._http = stalling_hub(started, fail)
+    assert (await rt._handle_model_download({"model_id": SMALL.id}, None))["status"] == "downloading"
+    await asyncio.wait_for(started.wait(), 5)
+    part = rt._llama.model_dir(SMALL) / (FILE + ".part")
+    await wait_for(lambda: part.exists() or SMALL.id not in rt._downloads)  # aiter_bytes buffers 1 MiB, so it may still be empty
+    return rt, events, part
+
+
+async def test_cancel_removes_model_dir_and_part_files(tmp_path):
+    rt, events, part = await start_download(tmp_path)
+    assert part.exists()
+    result = await rt._handle_model_cancel_download({"model_id": SMALL.id}, None)
+    assert result == {"status": "cancelled", "model_id": SMALL.id}
+    assert not rt._llama.model_dir(SMALL).exists() and rt._downloads == {}
+    assert ("model.download_progress", {"model_id": SMALL.id, "status": "cancelled"}) in events
+
+
+async def test_cancel_when_not_downloading_keeps_a_complete_model(tmp_path):
+    rt, _ = make_runtime(tmp_path, 512)
+    d = rt._llama.model_dir(SMALL)
+    d.mkdir(parents=True)
+    (d / "m.gguf").write_bytes(b"ab")
+    (d / "manifest.json").write_text(
+        '{"repo": "%s", "complete": true, "files": [{"name": "m.gguf", "size": 2}]}' % SMALL.hf_repo
+    )
+    result = await rt._handle_model_cancel_download({"model_id": SMALL.id}, None)
+    assert result["status"] == "not_downloading" and (d / "m.gguf").exists()
+    assert (await rt._handle_model_cancel_download({"model_id": "nope"}, None)).get("error")
+
+
+async def test_failed_download_keeps_part_file_then_cancel_removes_it(tmp_path):
+    rt, events, part = await start_download(tmp_path, fail=True)
+    await wait_for(lambda: SMALL.id not in rt._downloads)
+    assert part.exists()  # kept so Retry can resume
+    assert any(p.get("status") == "error" for _, p in events)
+    result = await rt._handle_model_cancel_download({"model_id": SMALL.id}, None)
+    assert result["status"] == "cancelled" and not rt._llama.model_dir(SMALL).exists()

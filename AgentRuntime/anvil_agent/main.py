@@ -574,6 +574,7 @@ class AnvilRuntime:
         self._ipc.register_method("model.list", self._handle_model_list)
         self._ipc.register_method("model.select", self._handle_model_select)
         self._ipc.register_method("model.download", self._handle_model_download)
+        self._ipc.register_method("model.cancel_download", self._handle_model_cancel_download)
         self._ipc.register_method("model.delete", self._handle_model_delete)
         self._ipc.register_method("llama.info", self._handle_llama_info)
         self._ipc.register_method("team.create", self._handle_team_create)
@@ -890,6 +891,26 @@ class AnvilRuntime:
 
         self._downloads[model_id] = asyncio.ensure_future(run())
         return {"status": "downloading", "model_id": model_id}
+
+    async def _handle_model_cancel_download(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        """Stop a download and remove everything it wrote (partial files, shards, manifest).
+
+        A download that already finished is left alone; one that failed earlier keeps its partial files
+        until cancelled here, so Retry can resume.
+        """
+        model_id = params.get("model_id", "")
+        entry = get_model_by_id(model_id)
+        if entry is None:
+            return {"error": f"Unknown local model: {model_id}"}
+        task = self._downloads.get(model_id)
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)  # the file handle must be closed before deleting (Windows)
+        if self._llama.is_downloaded(entry) or not self._llama.model_dir(entry).exists():
+            return {"status": "not_downloading", "model_id": model_id}  # finished just before the cancel, or nothing to clean
+        self._llama.delete(entry)
+        await self._broadcast("model.download_progress", {"model_id": model_id, "status": "cancelled"})
+        return {"status": "cancelled", "model_id": model_id}
 
     async def _handle_model_delete(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
         model_id = params.get("model_id", "")
