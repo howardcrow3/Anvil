@@ -52,7 +52,7 @@ from anvil_agent.tools.browser_tool import BrowserTool
 from anvil_agent.tools.delegate_tool import DelegateTool
 from anvil_agent.tools.desktop_tool import DesktopTool
 from anvil_agent.tools.external_cli import bundled_dirs, find_binary
-from anvil_agent.tools.installer import install_browser, install_tool
+from anvil_agent.tools.installer import install_browser, install_donsetch, install_tool
 from anvil_agent.tools.kanban_tool import KanbanTool
 from anvil_agent.tools.skill_tools import MemoryTool, SkillTools
 from anvil_agent.skills.executor import SkillExecutor
@@ -159,7 +159,7 @@ class AnvilRuntime:
             self._skill_loader, self._session_manager, self._settings,
             improver=self._skill_improver,
         )
-        self._mcp_client = MCPClient()
+        self._mcp_client = MCPClient(builtins=True)
         self._team_manager = TeamManager()
         self._project_manager = ProjectManager()
         self._team_orchestrator = TeamOrchestrator(
@@ -1194,10 +1194,17 @@ class AnvilRuntime:
                 "install": "node Scripts/fetch-agent-tools.mjs  (or the integrations.install method)",
                 "bundled": bool(path) and any(str(d) in path for d in bundled_dirs()),
             }
+        ds = find_binary("donsetch")
+        out["donsetch"] = {
+            "binary": "donsetch", "enabled": True, "installed": ds is not None, "path": ds,
+            "bundled": bool(ds) and any(str(d) in ds for d in bundled_dirs()),
+            "install": "node Scripts/fetch-agent-tools.mjs  (or the integrations.install method)",
+            "mcp_server": "donsetch",
+        }
         return out
 
     async def _handle_integrations_install(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
-        """Fallback installer for builds that did not bundle the tools. params: {tool?: browser|desktop|all, chrome?: bool}"""
+        """Fallback installer for builds that did not bundle the tools. params: {tool?: browser|desktop|donsetch|all, chrome?: bool}"""
         which = params.get("tool", "all")
         results: dict[str, Any] = {}
         for tool_name, key, binary, _cls in self._EXTERNAL_TOOLS:
@@ -1207,6 +1214,13 @@ class AnvilRuntime:
                 results[tool_name] = {"ok": True, "already_installed": True}
             else:
                 results[tool_name] = await install_tool(binary)
+        if which in ("all", "donsetch"):
+            if find_binary("donsetch"):
+                results["donsetch"] = {"ok": True, "already_installed": True}
+            else:
+                results["donsetch"] = await install_donsetch()
+            if results["donsetch"].get("ok"):
+                await self._mcp_client.reload(self._tool_registry)
         if params.get("chrome") and results.get("browser", {}).get("ok"):
             results["chrome"] = await install_browser(self._settings.get("agent_browser_path") or None)
         self._sync_external_tools()

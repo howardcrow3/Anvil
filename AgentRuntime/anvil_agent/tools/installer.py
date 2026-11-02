@@ -20,6 +20,17 @@ from typing import Any
 
 from anvil_agent.tools.external_cli import clean_env, find_binary, run_cli
 
+# DonSeTch release assets (AGPL-3.0, https://github.com/dondai44423/donsetch). Keep in sync with
+# Scripts/fetch-agent-tools.mjs (a test enforces it).
+DONSETCH_VERSION = "4.10.4"
+PINNED_DONSETCH = {
+    "linux-x64": "793b033b5c9ff62cbe60cfbf4de14bbd3d4217d46a4956684b29263b31640bfa",
+    "linux-arm64": "3c1ddfb9cb3be01942526c900c1b407a4c4f47c724190e62500e92251a4fd7c1",
+    "darwin-arm64": "8889c9a65ee70a33f106634446b58a792a7349248d07b84758351ab942737791",
+    "darwin-x64": "6a4e1780569cc0919c428f194ce4bb18246cf8e97fb0df9b68f2ad8663474a60",
+    "win32-x64": "7e0ce0c4905d875e4be298a286023ed7f65a3ca4ba23c8b0a1b073097b786b06",
+}
+
 PINNED = {"agent-browser": "0.27.0", "agent-desktop": "1.0.2"}
 
 
@@ -102,3 +113,42 @@ async def install_browser(path_override: str | None = None) -> dict[str, Any]:
         return {"ok": False, "error": "agent-browser is not installed"}
     res = await run_cli(binary, ["install"], timeout=900, max_chars=8000)
     return {"ok": res.code == 0, "output": (res.stdout + res.stderr).strip()[-1500:]}
+
+
+async def install_donsetch(dest_root: Path | None = None) -> dict[str, Any]:
+    """Download the pinned DonSeTch release tarball, verify its pinned SHA-256, install into ``<root>/bin``."""
+    import httpx
+
+    try:
+        key = platform_key()
+    except RuntimeError as e:
+        return {"ok": False, "error": str(e)}
+    if key == "win32-arm64":
+        key = "win32-x64"  # runs under emulation
+    want = PINNED_DONSETCH.get(key)
+    if not want:
+        return {"ok": False, "error": f"no DonSeTch build for {key}"}
+    asset = f"donsetch-{key}.tar.gz"
+    url = f"https://github.com/dondai44423/donsetch/releases/download/v{DONSETCH_VERSION}/{asset}"
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"download failed: {e}"}
+    if hashlib.sha256(resp.content).hexdigest() != want:
+        return {"ok": False, "error": f"checksum mismatch for {asset}"}
+    name = "donsetch.exe" if key.startswith("win32") else "donsetch"
+    bin_dir = (dest_root or Path.home() / ".anvil" / "tools") / "bin"
+    with tempfile.TemporaryDirectory(prefix="anvil-donsetch-") as tmp:
+        tgz = Path(tmp) / asset
+        tgz.write_bytes(resp.content)
+        _safe_extract(tgz, Path(tmp) / "x")
+        src = Path(tmp) / "x" / name
+        if not src.is_file():
+            return {"ok": False, "error": f"{name} missing from archive"}
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        out = bin_dir / name
+        shutil.copyfile(src, out)
+        out.chmod(out.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return {"ok": True, "tool": "donsetch", "version": DONSETCH_VERSION, "installed": [str(out)]}

@@ -157,7 +157,14 @@ class MCPServerConnection:
         cfg = self._config
         kind = self.transport_kind
         if kind == "stdio":
-            env = {**os.environ, **_expand(cfg.get("env") or {})}
+            extra = _expand(cfg.get("env") or {})
+            if cfg.get("inherit_env") is False:
+                # Third-party servers that Anvil ships get a minimal environment: no API keys or tokens.
+                from anvil_agent.tools.external_cli import clean_env
+
+                env = clean_env(extra)
+            else:
+                env = {**os.environ, **extra}
             return StdioServerParameters(
                 command=cfg["command"],
                 args=[str(a) for a in _expand(cfg.get("args") or [])],
@@ -298,6 +305,7 @@ def entry_to_server(name: str, entry: dict[str, Any]) -> dict[str, Any]:
         "url": entry.get("url", ""),
         "headers": {str(k): str(v) for k, v in (entry.get("headers") or {}).items()},
         "timeout": float(entry.get("timeout", DEFAULT_CALL_TIMEOUT)),
+        "builtin": bool(entry.get("builtin")),
     }
 
 
@@ -322,8 +330,9 @@ def validate_server(server: dict[str, Any]) -> str | None:
 class MCPClient:
     """Manages multiple MCP server connections and registers their tools."""
 
-    def __init__(self, config_path: Path = MCP_CONFIG_PATH) -> None:
+    def __init__(self, config_path: Path = MCP_CONFIG_PATH, *, builtins: bool = False) -> None:
         self._config_path = config_path
+        self._builtins = builtins
         self._servers: dict[str, MCPServerConnection] = {}
         self._registered: list[str] = []
         self._tools_by_server: dict[str, list[dict[str, str]]] = {}
@@ -332,7 +341,13 @@ class MCPClient:
     # -- config file ----------------------------------------------------------
 
     def read_entries(self) -> dict[str, dict[str, Any]]:
-        """The raw ``mcpServers`` mapping from the config file ({} if missing or unreadable)."""
+        """Servers to run: built-ins shipped with Anvil, overridden by the config file's ``mcpServers``.
+
+        A user entry with the same name replaces the built-in (set ``"enabled": false`` to turn it off).
+        """
+        return {**self._builtin_entries(), **self._file_entries()}
+
+    def _file_entries(self) -> dict[str, dict[str, Any]]:
         if not self._config_path.exists():
             return {}
         try:
@@ -342,12 +357,27 @@ class MCPClient:
             return {}
         return {n: c for n, c in (config.get("mcpServers") or {}).items() if isinstance(c, dict)}
 
+    def _builtin_entries(self) -> dict[str, dict[str, Any]]:
+        """MCP servers that ship with Anvil, offered only when their binary is present."""
+        if not self._builtins:
+            return {}
+        from anvil_agent.tools.external_cli import find_binary
+
+        out: dict[str, dict[str, Any]] = {}
+        binary = find_binary("donsetch")
+        if binary:
+            # DonSeTch: keyless web fetch/search/crawl. Separate AGPL-3.0 process; minimal env, no inherited secrets.
+            out["donsetch"] = {"command": binary, "args": ["mcp"], "inherit_env": False, "builtin": True}
+        return out
+
     def write_servers(self, servers: list[dict[str, Any]]) -> None:
         """Persist UI-shape servers to the config file (atomic, owner-only permissions).
 
         Raises ``ValueError`` on an invalid or duplicate server; nothing is written in that case.
         """
-        existing = self.read_entries()
+        file_entries = self._file_entries()
+        builtin = self._builtin_entries()
+        existing = {**builtin, **file_entries}
         entries: dict[str, Any] = {}
         for server in servers:
             problem = validate_server(server)
@@ -356,7 +386,13 @@ class MCPClient:
             name = str(server["name"]).strip()
             if name in entries:
                 raise ValueError(f"Duplicate server name {name!r}")
-            entries[name] = server_to_entry(server, existing.get(name))
+            entry = server_to_entry(server, existing.get(name))
+            entry.pop("builtin", None)
+            if entry.get("timeout") == DEFAULT_CALL_TIMEOUT and "timeout" not in (existing.get(name) or {}):
+                entry.pop("timeout")  # the UI echoes the default; don't persist it as a choice
+            if name in builtin and name not in file_entries and entry == {k: v for k, v in builtin[name].items() if k != "builtin"}:
+                continue  # unchanged built-in: don't freeze it into the file
+            entries[name] = entry
         # Keep other top-level keys a hand-edited file may carry.
         try:
             config = json.loads(self._config_path.read_text()) if self._config_path.exists() else {}
@@ -378,9 +414,6 @@ class MCPClient:
 
     async def load_and_start(self, registry: ToolRegistry) -> None:
         """Load MCP config, connect to all enabled servers concurrently, register their tools."""
-        if not self._config_path.exists():
-            logger.info("No MCP config found at %s", self._config_path)
-            return
         entries = {n: c for n, c in self.read_entries().items() if c.get("enabled", True)}
         results = await asyncio.gather(*(self._start_one(n, c, registry) for n, c in entries.items()))
         started = sum(1 for ok in results if ok)
