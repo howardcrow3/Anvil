@@ -16,6 +16,7 @@ class ModelCatalogEntry(BaseModel):
     provider: str
     parameters: str
     min_ram_gb: int
+    download_gb: float = 0.0  # size of the preferred quant's files; verified against Hugging Face by catalog_check
     description: str
     best_for: str
     supports_tools: bool
@@ -29,6 +30,11 @@ class ModelCatalogEntry(BaseModel):
         return min(self.context_window, MAX_LOADED_CONTEXT)
 
 
+def fits_machine(entry: ModelCatalogEntry, total_ram_gb: int | None) -> bool:
+    """Whether the machine has enough RAM for the model. Unknown RAM (None) hides nothing."""
+    return total_ram_gb is None or entry.min_ram_gb <= total_ram_gb
+
+
 MODEL_CATALOG: list[ModelCatalogEntry] = [
     # Gemma 4 family (newest, multimodal: text + image + audio)
     ModelCatalogEntry(
@@ -37,6 +43,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         provider="google",
         parameters="2.3B effective",
         min_ram_gb=4,
+        download_gb=2.6,
         description="Smallest default — downloads on first use, multimodal",
         best_for="Quick tasks, runs on any Mac",
         supports_tools=True,
@@ -50,6 +57,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         provider="google",
         parameters="4B effective",
         min_ram_gb=6,
+        download_gb=4.3,
         description="Stronger multimodal model (text + image + audio)",
         best_for="Balanced quality and speed",
         supports_tools=True,
@@ -63,6 +71,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         provider="google",
         parameters="26B MoE (4B active)",
         min_ram_gb=18,
+        download_gb=13.6,
         description="High-quality multimodal reasoning",
         best_for="Complex tasks, M3/M4 Pro+",
         supports_tools=True,
@@ -77,6 +86,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         provider="nousresearch",
         parameters="8B",
         min_ram_gb=6,
+        download_gb=4.6,
         description="Nous Research Hermes 3 (Llama 3.1 base), official GGUF build",
         best_for="Agentic tool use on 8GB Macs",
         supports_tools=True,
@@ -89,6 +99,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         provider="nousresearch",
         parameters="36B",
         min_ram_gb=28,
+        download_gb=20.3,
         description="Nous Hermes 4.3 (Seed-OSS 36B base), hybrid reasoning + tool use; Q4_K_M via Hugging Face GGUF",
         best_for="Top local agent quality, 32GB+ Macs",
         supports_tools=True,
@@ -102,6 +113,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         provider="alibaba",
         parameters="8B",
         min_ram_gb=6,
+        download_gb=4.7,
         description="Alibaba's multilingual model",
         best_for="Multilingual tasks, coding",
         supports_tools=True,
@@ -114,6 +126,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         provider="meta",
         parameters="17B active (109B MoE)",
         min_ram_gb=67,
+        download_gb=60.9,
         description="Meta's mixture-of-experts model",
         best_for="Complex reasoning tasks",
         supports_tools=True,
@@ -126,6 +139,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         provider="mistral",
         parameters="24B",
         min_ram_gb=16,
+        download_gb=13.3,
         description="Mistral's strong coding model",
         best_for="Code generation and review",
         supports_tools=True,
@@ -138,6 +152,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
         provider="alibaba",
         parameters="32B",
         min_ram_gb=21,
+        download_gb=18.4,
         description="Alibaba's large model for heavy tasks",
         best_for="Complex tasks, M3/M4 Pro+",
         supports_tools=True,

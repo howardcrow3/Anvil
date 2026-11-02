@@ -387,6 +387,8 @@ def _runtime_stub(tmp_path: Path):
     return SimpleNamespace(
         _llama=LlamaCppService(models_dir=tmp_path / "models", state_dir=tmp_path / "run"),
         _downloads={},
+        _progress={},
+        _total_ram_gb=None,
         _router=ModelRouter(),
         _settings=SimpleNamespace(get=lambda k, d=None: d, get_api_key=lambda: ""),
     )

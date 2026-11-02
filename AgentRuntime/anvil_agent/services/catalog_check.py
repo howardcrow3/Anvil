@@ -61,6 +61,8 @@ def assess(entry: ModelCatalogEntry, tree: list[dict[str, Any]]) -> Assessment:
             f"min_ram_gb={entry.min_ram_gb} is too low for a {result.download_gb} GB download ({quant}); "
             f"suggest {result.suggested_min_ram_gb}"
         )
+    if entry.download_gb and abs(entry.download_gb - result.download_gb) > 0.1 * result.download_gb:
+        result.warnings.append(f"download_gb={entry.download_gb} is out of date; the repo's files total {result.download_gb} GB")
     return result
 
 
