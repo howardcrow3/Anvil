@@ -143,6 +143,9 @@ body.platform-darwin .chat-head { padding-top: 12px; }
 .mcp-name { font-weight: 600; } .mcp-sub { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
 .mcp-error { color: var(--bad); font-size: 12px; margin: 4px 0 0 16px; user-select: text; }
 .mcp-tools { margin: 4px 0 0 16px; font-size: 12px; } .mcp-tool { padding: 2px 0; } .mcp-tool small { display: block; color: var(--muted); }
+.model-row .mcp-sub { max-width: none; white-space: normal; }
+.dl-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin-top: 6px; }
+.dl-bar > div { height: 100%; background: var(--accent); transition: width .4s; }
 .mcp-actions { margin-top: 12px; }
 .confirm { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 10px; border: 1px solid var(--bad); border-radius: 8px; }
 .confirm span { flex: 1; }
