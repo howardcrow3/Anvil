@@ -39,3 +39,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+
+## Vercel Labs agent-browser and agent-desktop — Apache-2.0 (bundled, unmodified)
+
+Anvil's `browser` and `desktop` tools (`AgentRuntime/anvil_agent/tools/browser_tool.py`, `desktop_tool.py`) run the
+prebuilt command-line programs [agent-browser](https://github.com/vercel-labs/agent-browser) and
+[agent-desktop](https://github.com/vercel-labs/agent-desktop), both © Vercel, licensed under the Apache License 2.0.
+`Scripts/fetch-agent-tools.mjs` copies their unmodified release binaries from the npm packages into
+`Resources/agent-tools/bin/` for distribution, together with their license texts in `Resources/agent-tools/licenses/`.
+Full license: https://www.apache.org/licenses/LICENSE-2.0

@@ -34,6 +34,14 @@ class AnvilSettings(BaseModel):
     learning_review_enabled: bool = True
     curator_enabled: bool = True
     curator_consolidate: bool = False
+    # External agent CLIs (Vercel Labs agent-browser / agent-desktop, Apache-2.0); empty path = look on PATH.
+    agent_browser_enabled: bool = True
+    agent_browser_path: str = ""
+    agent_browser_allowed_domains: list[str] = Field(default_factory=list)
+    agent_browser_max_output: int = 30000
+    agent_desktop_enabled: bool = True
+    agent_desktop_path: str = ""
+    agent_desktop_max_output: int = 60000
 
 
 class SettingsManager:
