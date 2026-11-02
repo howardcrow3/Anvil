@@ -225,8 +225,9 @@ class LlamaCppService:
         dest_dir = self.model_dir(entry)
         if (dest_dir / "manifest.json").exists():  # a finished download that no longer matches the catalog entry
             shutil.rmtree(dest_dir, ignore_errors=True)
-        dest_dir.mkdir(parents=True, exist_ok=True)
         total = sum(int(f.get("size", 0)) for f in files)
+        self._require_disk_space(entry, dest_dir, files, total)
+        dest_dir.mkdir(parents=True, exist_ok=True)
         done_before = 0
         records: list[dict[str, Any]] = []
         for f in files:
@@ -240,6 +241,26 @@ class LlamaCppService:
             json.dumps({"repo": entry.hf_repo, "quant": quant, "complete": True, "files": records}, indent=2), encoding="utf-8"
         )
         return dest_dir / records[0]["name"]
+
+    DISK_MARGIN = 1 << 30  # keep 1 GiB free beyond the download itself
+
+    def _require_disk_space(self, entry: ModelCatalogEntry, dest_dir: Path, files: list[dict[str, Any]], total: int) -> None:
+        """Fail before writing anything if the bytes still to fetch (plus a margin) will not fit."""
+        have = 0
+        for f in files:
+            part = dest_dir / (Path(f["path"]).name + ".part")
+            if part.is_file():
+                have += min(part.stat().st_size, int(f.get("size", 0)))
+        probe = dest_dir
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
+        free = shutil.disk_usage(probe).free
+        needed = max(0, total - have) + self.DISK_MARGIN
+        if free < needed:
+            gib = 1 << 30
+            raise LlamaCppError(
+                f"not enough disk space for {entry.name}: need {needed / gib:.1f} GB, only {free / gib:.1f} GB free in {probe}"
+            )
 
     async def _fetch_file(self, url: str, dest: Path, size: int, sha256: str | None, on_bytes: Callable[[int], None]) -> None:
         part = dest.with_name(dest.name + ".part")

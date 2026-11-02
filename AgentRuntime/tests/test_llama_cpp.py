@@ -437,3 +437,32 @@ def test_api_keys_are_never_mistaken_for_command_line_flags():
     keys = {new_api_key() for _ in range(2000)}
     assert len(keys) == 2000
     assert all(len(k) >= 32 and not k.startswith("-") and k.isalnum() for k in keys)
+
+
+async def test_download_refuses_when_disk_too_small(tmp_path, monkeypatch):
+    from collections import namedtuple
+
+    from anvil_agent.services import llama_cpp_service as mod
+
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(mod.shutil, "disk_usage", lambda p: usage(0, 0, len(BODY)))
+    svc = LlamaCppService(models_dir=tmp_path / "models")
+    svc._http = hub()
+    with pytest.raises(LlamaCppError, match="not enough disk space"):
+        await svc.download(ENTRY)
+    assert not svc.model_dir(ENTRY).exists()
+
+
+async def test_disk_check_counts_an_existing_part_file(tmp_path, monkeypatch):
+    from collections import namedtuple
+
+    from anvil_agent.services import llama_cpp_service as mod
+
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(mod.shutil, "disk_usage", lambda p: usage(0, 0, 2**30 + 2048))  # 1 GiB margin + 2 KiB
+    svc = LlamaCppService(models_dir=tmp_path / "models")
+    d = svc.model_dir(ENTRY)
+    d.mkdir(parents=True)
+    (d / "tiny-Q4_K_M.gguf.part").write_bytes(BODY[:9000])  # only ~1 KiB left to fetch
+    svc._http = hub()
+    assert (await svc.download(ENTRY)).read_bytes() == BODY
