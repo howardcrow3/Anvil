@@ -65,3 +65,6 @@ Resources/ollama/models/
 
 # Bundled Ollama binary (download via Scripts/download-ollama.sh)
 Resources/ollama/
+
+# Bundled agent tools (fetched by Scripts/fetch-agent-tools.mjs)
+Resources/agent-tools/

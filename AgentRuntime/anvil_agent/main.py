@@ -48,7 +48,11 @@ from anvil_agent.learning import Curator, ReviewManager
 from anvil_agent.learning.review import ReviewConfig
 from anvil_agent.services.model_catalog import lookup_context_window
 from anvil_agent.subagents.manager import NonInteractivePermissions, SubagentManager
+from anvil_agent.tools.browser_tool import BrowserTool
 from anvil_agent.tools.delegate_tool import DelegateTool
+from anvil_agent.tools.desktop_tool import DesktopTool
+from anvil_agent.tools.external_cli import bundled_dirs, find_binary
+from anvil_agent.tools.installer import install_browser, install_tool
 from anvil_agent.tools.kanban_tool import KanbanTool
 from anvil_agent.tools.skill_tools import MemoryTool, SkillTools
 from anvil_agent.skills.executor import SkillExecutor
@@ -193,6 +197,7 @@ class AnvilRuntime:
         )
         self._tool_registry.register(DelegateTool(lambda: self._subagents))
         self._tool_registry.register(KanbanTool(lambda: self._kanban_db))
+        self._sync_external_tools()
         self._curator = Curator(
             enabled=self._settings.get("curator_enabled") is not False,
             consolidate=bool(self._settings.get("curator_consolidate")),
@@ -463,6 +468,21 @@ class AnvilRuntime:
 
     # ── Subagents / kanban / learning plumbing ───────────────────
 
+    _EXTERNAL_TOOLS = (
+        ("browser", "agent_browser", "agent-browser", BrowserTool),
+        ("desktop", "agent_desktop", "agent-desktop", DesktopTool),
+    )
+
+    def _sync_external_tools(self) -> None:
+        """Register the browser/desktop tools when enabled in settings, unregister when disabled."""
+        for tool_name, key, _binary, cls in self._EXTERNAL_TOOLS:
+            enabled = self._settings.get(f"{key}_enabled") is not False
+            present = self._tool_registry.get(tool_name) is not None
+            if enabled and not present:
+                self._tool_registry.register(cls(self._settings.get_all))
+            elif not enabled and present:
+                self._tool_registry.unregister(tool_name)
+
     def _loop_extras(self) -> dict[str, Any]:
         return {
             "context_window": lookup_context_window(self._router.active_model_id),
@@ -600,6 +620,8 @@ class AnvilRuntime:
         self._ipc.register_method("kanban.create", self._handle_kanban_create)
         self._ipc.register_method("kanban.action", self._handle_kanban_action)
         self._ipc.register_method("kanban.dispatcher", self._handle_kanban_dispatcher)
+        self._ipc.register_method("integrations.status", self._handle_integrations_status)
+        self._ipc.register_method("integrations.install", self._handle_integrations_install)
         self._ipc.register_method("curator.status", self._handle_curator_status)
         self._ipc.register_method("curator.run", self._handle_curator_run)
         self._ipc.register_method("curator.pin", self._handle_curator_pin)
@@ -1024,6 +1046,8 @@ class AnvilRuntime:
                 except ValueError:
                     return {"error": f"Unknown permission mode: {value!r}"}
             self._settings.set(key, value)
+            if key.startswith(('agent_browser_', 'agent_desktop_')):
+                self._sync_external_tools()
 
             # When API key is set, auto-register cloud models and create agent loop
             if key == "api_key" and value:
@@ -1158,6 +1182,35 @@ class AnvilRuntime:
         else:
             await self._kanban.stop(stop_workers=bool(params.get("stop_workers")))
         return {"running": self._kanban.running}
+
+    async def _handle_integrations_status(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        self._sync_external_tools()
+        out: dict[str, Any] = {}
+        for tool_name, key, binary, _cls in self._EXTERNAL_TOOLS:
+            path = find_binary(binary, self._settings.get(f"{key}_path") or None)
+            out[tool_name] = {
+                "binary": binary, "enabled": self._settings.get(f"{key}_enabled") is not False,
+                "installed": path is not None, "path": path,
+                "install": "node Scripts/fetch-agent-tools.mjs  (or the integrations.install method)",
+                "bundled": bool(path) and any(str(d) in path for d in bundled_dirs()),
+            }
+        return out
+
+    async def _handle_integrations_install(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        """Fallback installer for builds that did not bundle the tools. params: {tool?: browser|desktop|all, chrome?: bool}"""
+        which = params.get("tool", "all")
+        results: dict[str, Any] = {}
+        for tool_name, key, binary, _cls in self._EXTERNAL_TOOLS:
+            if which not in ("all", tool_name):
+                continue
+            if find_binary(binary, self._settings.get(f"{key}_path") or None):
+                results[tool_name] = {"ok": True, "already_installed": True}
+            else:
+                results[tool_name] = await install_tool(binary)
+        if params.get("chrome") and results.get("browser", {}).get("ok"):
+            results["chrome"] = await install_browser(self._settings.get("agent_browser_path") or None)
+        self._sync_external_tools()
+        return results
 
     async def _handle_curator_status(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
         return self._curator.status()

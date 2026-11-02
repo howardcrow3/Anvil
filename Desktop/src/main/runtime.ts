@@ -29,7 +29,12 @@ export function resolveLaunch(opts: {
   if (opts.packaged) {
     const root = join(opts.resourcesPath, 'runtime')
     const python = platform === 'win32' ? join(root, 'python', 'python.exe') : join(root, 'python', 'bin', 'python3')
-    return { command: python, args: common, cwd: root, env: { ...env, PYTHONPATH: join(root, 'site') } }
+    return {
+      command: python,
+      args: common,
+      cwd: root,
+      env: { ...env, PYTHONPATH: join(root, 'site'), ANVIL_TOOLS_DIR: join(opts.resourcesPath, 'agent-tools', 'bin') }
+    }
   }
 
   // Development: AgentRuntime lives next to Desktop/ in the repo.
