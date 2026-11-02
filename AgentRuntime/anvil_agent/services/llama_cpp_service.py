@@ -111,6 +111,7 @@ class LlamaCppService:
         state_dir: Path | None = None,
     ) -> None:
         self._models_dir = models_dir or MODELS_DIR
+        self._hf_base = os.environ.get("ANVIL_HF_BASE", HF_BASE).rstrip("/")  # overridable so tests can use a fake hub
         self._configured_binary = binary or None
         self._state_dir = state_dir or ANVIL_DIR / "run"
         self._lock = asyncio.Lock()
@@ -193,6 +194,13 @@ class LlamaCppService:
     def is_downloaded(self, entry: ModelCatalogEntry) -> bool:
         return self.model_path(entry) is not None
 
+    def partial_bytes(self, entry: ModelCatalogEntry) -> int:
+        """Bytes on disk for a model that is not completely downloaded (a failed or interrupted download)."""
+        d = self.model_dir(entry)
+        if not d.is_dir() or self.is_downloaded(entry):
+            return 0
+        return sum(p.stat().st_size for p in d.iterdir() if p.is_file() and p.name != "manifest.json")
+
     def delete(self, entry: ModelCatalogEntry) -> bool:
         d = self.model_dir(entry)
         if not d.is_dir():
@@ -207,7 +215,7 @@ class LlamaCppService:
         return {"Authorization": f"Bearer {token}"} if token else {}
 
     async def _list_repo(self, repo: str) -> list[dict[str, Any]]:
-        resp = await self._http.get(f"{HF_BASE}/api/models/{repo}/tree/main", params={"recursive": "true"}, headers=self._hf_headers())
+        resp = await self._http.get(f"{self._hf_base}/api/models/{repo}/tree/main", params={"recursive": "true"}, headers=self._hf_headers())
         if resp.status_code == 404:
             raise LlamaCppError(f"model repository {repo} was not found on Hugging Face")
         if resp.status_code in (401, 403):
@@ -225,14 +233,22 @@ class LlamaCppService:
         dest_dir = self.model_dir(entry)
         if (dest_dir / "manifest.json").exists():  # a finished download that no longer matches the catalog entry
             shutil.rmtree(dest_dir, ignore_errors=True)
-        dest_dir.mkdir(parents=True, exist_ok=True)
         total = sum(int(f.get("size", 0)) for f in files)
+        self._require_disk_space(entry, dest_dir, files, total)
+        dest_dir.mkdir(parents=True, exist_ok=True)
         done_before = 0
         records: list[dict[str, Any]] = []
         for f in files:
             name = Path(f["path"]).name
             sha = (f.get("lfs") or {}).get("oid")
-            await self._fetch_file(f"{HF_BASE}/{entry.hf_repo}/resolve/main/{f['path']}", dest_dir / name, int(f["size"]), sha,
+            finished = dest_dir / name
+            if finished.is_file() and finished.stat().st_size == int(f["size"]):  # verified before it was renamed; do not fetch again
+                done_before += int(f["size"])
+                records.append({"name": name, "size": int(f["size"]), "sha256": sha})
+                if progress:
+                    progress(name, done_before, total)
+                continue
+            await self._fetch_file(f"{self._hf_base}/{entry.hf_repo}/resolve/main/{f['path']}", dest_dir / name, int(f["size"]), sha,
                                    lambda got, base=done_before, n=name: progress and progress(n, base + got, total))
             done_before += int(f["size"])
             records.append({"name": name, "size": int(f["size"]), "sha256": sha})
@@ -240,6 +256,26 @@ class LlamaCppService:
             json.dumps({"repo": entry.hf_repo, "quant": quant, "complete": True, "files": records}, indent=2), encoding="utf-8"
         )
         return dest_dir / records[0]["name"]
+
+    DISK_MARGIN = 1 << 30  # keep 1 GiB free beyond the download itself
+
+    def _require_disk_space(self, entry: ModelCatalogEntry, dest_dir: Path, files: list[dict[str, Any]], total: int) -> None:
+        """Fail before writing anything if the bytes still to fetch (plus a margin) will not fit."""
+        have = 0
+        for f in files:
+            part = dest_dir / (Path(f["path"]).name + ".part")
+            if part.is_file():
+                have += min(part.stat().st_size, int(f.get("size", 0)))
+        probe = dest_dir
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
+        free = shutil.disk_usage(probe).free
+        needed = max(0, total - have) + self.DISK_MARGIN
+        if free < needed:
+            gib = 1 << 30
+            raise LlamaCppError(
+                f"not enough disk space for {entry.name}: need {needed / gib:.1f} GB, only {free / gib:.1f} GB free in {probe}"
+            )
 
     async def _fetch_file(self, url: str, dest: Path, size: int, sha256: str | None, on_bytes: Callable[[int], None]) -> None:
         part = dest.with_name(dest.name + ".part")

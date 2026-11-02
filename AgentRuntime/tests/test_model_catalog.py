@@ -75,3 +75,22 @@ def test_default_models_json_matches_the_catalog():
     for entry in MODEL_CATALOG:
         assert listed[entry.id]["min_ram_gb"] == entry.min_ram_gb
         assert listed[entry.id]["provider"] == "llamacpp"
+
+
+def test_fits_machine_boundaries():
+    from anvil_agent.services.model_catalog import fits_machine
+
+    entry = next(m for m in MODEL_CATALOG if m.min_ram_gb >= 4).model_copy(update={"min_ram_gb": 16})
+    assert fits_machine(entry, 16) and fits_machine(entry, 32)
+    assert not fits_machine(entry, 15)
+    assert fits_machine(entry, None)  # unknown RAM: hide nothing
+
+
+def test_download_gb_matches_default_models_json():
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent.parent / "Resources" / "default-models.json"
+    listed = {m["id"]: m for m in json.loads(path.read_text(encoding="utf-8"))}
+    for entry in MODEL_CATALOG:
+        assert entry.download_gb == listed[entry.id]["size_gb"], entry.id

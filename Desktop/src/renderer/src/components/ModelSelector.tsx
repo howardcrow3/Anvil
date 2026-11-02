@@ -32,7 +32,7 @@ export function ModelSelector(): React.JSX.Element {
                 <option key={m.id} value={m.id} disabled={m.status === 'downloadable'}>
                   {m.name}
                   {m.size ? ` · ${m.size}` : ''}
-                  {m.status === 'needs_key' ? ' (needs API key)' : m.status === 'downloadable' ? ' (not downloaded)' : ''}
+                  {m.status === 'needs_key' ? ' (needs API key)' : m.status === 'downloadable' ? ' (download in Settings)' : ''}
                 </option>
               ))}
             </optgroup>

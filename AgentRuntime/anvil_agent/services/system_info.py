@@ -65,20 +65,62 @@ def _parse_chip_family(chip: str) -> str:
     return "Unknown"
 
 
-def _get_total_ram_gb() -> int:
-    """Get total physical RAM in GB."""
+def _read_text(path: str) -> str:
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _linux_total_bytes() -> int:
+    for line in _read_text("/proc/meminfo").splitlines():
+        if line.startswith("MemTotal:"):
+            return int(line.split()[1]) * 1024  # reported in kB
+    raise ValueError("MemTotal not found")
+
+
+def _windows_total_bytes() -> int:
+    import ctypes
+
+    class MemoryStatus(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong),
+            ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    status = MemoryStatus()
+    status.dwLength = ctypes.sizeof(MemoryStatus)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
+        raise OSError("GlobalMemoryStatusEx failed")
+    return int(status.ullTotalPhys)
+
+
+def _macos_total_bytes() -> int:
+    result = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=5)
+    if result.returncode != 0:
+        raise OSError("sysctl hw.memsize failed")
+    return int(result.stdout.strip())
+
+
+def detect_total_ram_gb() -> int | None:
+    """Total physical RAM in GB (rounded to the nearest GB), or None if it cannot be determined."""
+    reader = {"Linux": _linux_total_bytes, "Windows": _windows_total_bytes, "Darwin": _macos_total_bytes}.get(platform.system())
+    if reader is None:
+        return None
     try:
-        result = subprocess.run(
-            ["sysctl", "-n", "hw.memsize"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0:
-            return int(result.stdout.strip()) // (1024 ** 3)
+        return round(reader() / 2**30)
     except Exception:
-        pass
-    return 8  # Safe fallback
+        return None
+
+
+def _get_total_ram_gb() -> int:
+    """Total physical RAM in GB; 8 if it cannot be detected."""
+    return detect_total_ram_gb() or 8
 
 
 def _get_available_ram_gb() -> int:

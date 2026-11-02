@@ -4,11 +4,13 @@ import { ApiKeySettings } from './ApiKeySettings'
 import { EndpointSettings } from './EndpointSettings'
 import { GeneralSettings } from './GeneralSettings'
 import { McpSettings } from './McpSettings'
+import { ModelsSettings } from './ModelsSettings'
 import { PermissionSettings } from './PermissionSettings'
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'apikey', label: 'API Key' },
+  { id: 'models', label: 'Models' },
   { id: 'endpoints', label: 'Endpoints' },
   { id: 'permissions', label: 'Permissions' },
   { id: 'mcp', label: 'MCP' }
@@ -31,6 +33,7 @@ export function SettingsDialog(): React.JSX.Element {
         <div className="tab-panel" role="tabpanel">
           {tab === 'general' && <GeneralSettings />}
           {tab === 'apikey' && <ApiKeySettings />}
+          {tab === 'models' && <ModelsSettings />}
           {tab === 'endpoints' && <EndpointSettings />}
           {tab === 'permissions' && <PermissionSettings />}
           {tab === 'mcp' && <McpSettings />}

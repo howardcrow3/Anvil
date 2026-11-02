@@ -36,10 +36,11 @@ from anvil_agent.models.types import ChatMessage
 from anvil_agent.permissions import PermissionManager, PermissionMode
 from anvil_agent.planning.manager import PlanManager
 from anvil_agent.services.model_catalog import (
-    get_cloud_models, get_model_by_id, MODEL_CATALOG, BUNDLED_MODEL_ID,
+    get_cloud_models, get_model_by_id, fits_machine, MODEL_CATALOG, BUNDLED_MODEL_ID,
 )
 from anvil_agent.models.llama_cpp_provider import LlamaCppProvider
 from anvil_agent.services.llama_cpp_service import LlamaCppService
+from anvil_agent.services.system_info import detect_total_ram_gb
 from anvil_agent.session.manager import SessionManager
 from anvil_agent.session.search import SessionSearchDB
 from anvil_agent.settings import SettingsManager
@@ -164,6 +165,8 @@ class AnvilRuntime:
         )
         self._llama = LlamaCppService(binary=self._settings.get("llama_server_path") or None)
         self._downloads: dict[str, asyncio.Task[Any]] = {}
+        self._progress: dict[str, dict[str, int]] = {}  # latest {done, total} per running download
+        self._total_ram_gb = detect_total_ram_gb()
         self._perf_monitor = PerformanceMonitor()
         self._ipc = IPCServer(None if args.no_socket else args.socket_path)
 
@@ -571,6 +574,7 @@ class AnvilRuntime:
         self._ipc.register_method("model.list", self._handle_model_list)
         self._ipc.register_method("model.select", self._handle_model_select)
         self._ipc.register_method("model.download", self._handle_model_download)
+        self._ipc.register_method("model.cancel_download", self._handle_model_cancel_download)
         self._ipc.register_method("model.delete", self._handle_model_delete)
         self._ipc.register_method("llama.info", self._handle_llama_info)
         self._ipc.register_method("team.create", self._handle_team_create)
@@ -814,17 +818,28 @@ class AnvilRuntime:
                 "active": cloud["id"] == active_id,
             })
 
-        # Local models (GGUF, run by llama.cpp)
+        # Local models (GGUF, run by llama.cpp): only those this machine can run, plus any already on disk
         for cat in MODEL_CATALOG:
-            models.append({
+            downloaded = self._llama.is_downloaded(cat)
+            downloading = cat.id in self._downloads
+            partial = 0 if downloaded or downloading else self._llama.partial_bytes(cat)
+            if not (downloaded or downloading or partial or fits_machine(cat, self._total_ram_gb)):
+                continue  # not runnable here, and nothing on disk to reclaim
+            row: dict[str, Any] = {
                 "id": cat.id,
                 "name": cat.name,
                 "provider": "local",
-                "status": "downloading" if cat.id in self._downloads else (
-                    "available" if self._llama.is_downloaded(cat) else "downloadable"),
+                "status": "downloading" if downloading else ("available" if downloaded else "downloadable"),
                 "size": cat.parameters,
+                "download_gb": cat.download_gb,
+                "min_ram_gb": cat.min_ram_gb,
                 "active": cat.id == active_id,
-            })
+            }
+            if partial:
+                row["partial_bytes"] = partial
+            if downloading and cat.id in self._progress:
+                row["progress"] = dict(self._progress[cat.id])
+            models.append(row)
 
         # Custom endpoints
         for ep in self._settings.get("endpoints") or []:
@@ -850,6 +865,10 @@ class AnvilRuntime:
             return {"status": "ready", "model_id": model_id}
         if model_id in self._downloads:
             return {"status": "downloading", "model_id": model_id}
+        if not fits_machine(entry, self._total_ram_gb):
+            return {"error": f"{entry.name} needs about {entry.min_ram_gb} GB of RAM; this machine has {self._total_ram_gb} GB"}
+        if self._downloads:
+            return {"error": "Another download is already running; wait for it to finish or cancel it first"}
 
         last = {"t": 0.0}
 
@@ -857,6 +876,7 @@ class AnvilRuntime:
             now = time.monotonic()
             if now - last["t"] >= 0.5 or done >= total:  # at most ~2 updates a second
                 last["t"] = now
+                self._progress[model_id] = {"done": done, "total": total}
                 self._broadcast_sync("model.download_progress", {"model_id": model_id, "file": name, "done": done, "total": total})
 
         async def run() -> None:
@@ -870,9 +890,30 @@ class AnvilRuntime:
                 await self._broadcast("model.download_progress", {"model_id": model_id, "status": "error", "error": str(exc)})
             finally:
                 self._downloads.pop(model_id, None)
+                self._progress.pop(model_id, None)
 
         self._downloads[model_id] = asyncio.ensure_future(run())
         return {"status": "downloading", "model_id": model_id}
+
+    async def _handle_model_cancel_download(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
+        """Stop a download and remove everything it wrote (partial files, shards, manifest).
+
+        A download that already finished is left alone; one that failed earlier keeps its partial files
+        until cancelled here, so Retry can resume.
+        """
+        model_id = params.get("model_id", "")
+        entry = get_model_by_id(model_id)
+        if entry is None:
+            return {"error": f"Unknown local model: {model_id}"}
+        task = self._downloads.get(model_id)
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)  # the file handle must be closed before deleting (Windows)
+        if self._llama.is_downloaded(entry) or not self._llama.model_dir(entry).exists():
+            return {"status": "not_downloading", "model_id": model_id}  # finished just before the cancel, or nothing to clean
+        self._llama.delete(entry)
+        await self._broadcast("model.download_progress", {"model_id": model_id, "status": "cancelled"})
+        return {"status": "cancelled", "model_id": model_id}
 
     async def _handle_model_delete(self, params: dict[str, Any], writer: Any) -> dict[str, Any]:
         model_id = params.get("model_id", "")

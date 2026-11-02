@@ -12,7 +12,22 @@ export interface ModelInfo {
   provider: 'cloud' | 'local' | 'custom'
   status: string
   size?: string
+  download_gb?: number
+  min_ram_gb?: number
+  progress?: { done: number; total: number }
+  /** Bytes already on disk from a failed or interrupted download. */
+  partial_bytes?: number
   active: boolean
+}
+
+/** `model.download_progress` notification. Byte counts are cumulative across a model's files. */
+export interface DownloadProgressEvent {
+  model_id: string
+  file?: string
+  done?: number
+  total?: number
+  status?: 'ready' | 'error' | 'cancelled'
+  error?: string
 }
 
 export type ToolStatus = 'running' | 'done' | 'error'

@@ -48,3 +48,9 @@ def test_split_models_are_sized_by_all_shards():
     shards = [f(f"m-Q4_K_M-0000{i}-of-00003.gguf", 7.0) for i in (1, 2, 3)]
     r = assess(entry(min_ram_gb=24), shards)
     assert r.download_gb == 21.0 and r.level == "ok"
+
+
+def test_a_stale_download_size_in_the_catalog_is_flagged():
+    r = assess(entry(min_ram_gb=8, download_gb=2.0), [f("m-Q4_K_M.gguf", 4.7)])
+    assert r.level == "warning" and "download_gb=2.0" in r.warnings[0]
+    assert assess(entry(min_ram_gb=8, download_gb=4.6), [f("m-Q4_K_M.gguf", 4.7)]).level == "ok"
