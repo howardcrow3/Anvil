@@ -111,6 +111,7 @@ class LlamaCppService:
         state_dir: Path | None = None,
     ) -> None:
         self._models_dir = models_dir or MODELS_DIR
+        self._hf_base = os.environ.get("ANVIL_HF_BASE", HF_BASE).rstrip("/")  # overridable so tests can use a fake hub
         self._configured_binary = binary or None
         self._state_dir = state_dir or ANVIL_DIR / "run"
         self._lock = asyncio.Lock()
@@ -207,7 +208,7 @@ class LlamaCppService:
         return {"Authorization": f"Bearer {token}"} if token else {}
 
     async def _list_repo(self, repo: str) -> list[dict[str, Any]]:
-        resp = await self._http.get(f"{HF_BASE}/api/models/{repo}/tree/main", params={"recursive": "true"}, headers=self._hf_headers())
+        resp = await self._http.get(f"{self._hf_base}/api/models/{repo}/tree/main", params={"recursive": "true"}, headers=self._hf_headers())
         if resp.status_code == 404:
             raise LlamaCppError(f"model repository {repo} was not found on Hugging Face")
         if resp.status_code in (401, 403):
@@ -233,7 +234,7 @@ class LlamaCppService:
         for f in files:
             name = Path(f["path"]).name
             sha = (f.get("lfs") or {}).get("oid")
-            await self._fetch_file(f"{HF_BASE}/{entry.hf_repo}/resolve/main/{f['path']}", dest_dir / name, int(f["size"]), sha,
+            await self._fetch_file(f"{self._hf_base}/{entry.hf_repo}/resolve/main/{f['path']}", dest_dir / name, int(f["size"]), sha,
                                    lambda got, base=done_before, n=name: progress and progress(n, base + got, total))
             done_before += int(f["size"])
             records.append({"name": name, "size": int(f["size"]), "sha256": sha})

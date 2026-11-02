@@ -466,3 +466,18 @@ async def test_disk_check_counts_an_existing_part_file(tmp_path, monkeypatch):
     (d / "tiny-Q4_K_M.gguf.part").write_bytes(BODY[:9000])  # only ~1 KiB left to fetch
     svc._http = hub()
     assert (await svc.download(ENTRY)).read_bytes() == BODY
+
+
+async def test_hf_base_env_override(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANVIL_HF_BASE", "http://127.0.0.1:9999/")
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(404)
+
+    svc = LlamaCppService(models_dir=tmp_path)
+    svc._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(LlamaCppError):
+        await svc.download(ENTRY)
+    assert seen and seen[0].startswith("http://127.0.0.1:9999/api/models/acme/tiny-GGUF/tree/main")

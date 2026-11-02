@@ -38,6 +38,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   procs.push(llm)
   await waitFor(async () => (await fetch(`http://127.0.0.1:${llmPort}/v1/models`)).ok, 'fake LLM')
 
+  const hfPort = await freePort()
+  procs.push(spawn(python, [resolve(__dirname, 'fake_hf.py'), String(hfPort)], { stdio: 'inherit' }))
+  await waitFor(async () => (await fetch(`http://127.0.0.1:${hfPort}/api/models/a/b/tree/main`)).ok, 'fake Hugging Face')
+
   writeFileSync(
     join(home, '.anvil', 'config.json'),
     JSON.stringify({ endpoints: [{ name: 'fake', base_url: `http://127.0.0.1:${llmPort}/v1`, default_model: 'fake-model' }], permission_mode: 'ask' })
@@ -46,7 +50,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const runtime = spawn(
     python,
     ['-u', '-m', 'anvil_agent', '--no-socket', '--ws-port', '0', '--ws-origins', 'http://127.0.0.1:4173', '--project-dir', project, '--log-level', 'WARNING'],
-    { cwd: runtimeDir, env: { ...process.env, HOME: home, USERPROFILE: home, ANVIL_WS_TOKEN: 'e2e-token' } }
+    { cwd: runtimeDir, env: { ...process.env, HOME: home, USERPROFILE: home, ANVIL_WS_TOKEN: 'e2e-token', ANVIL_HF_BASE: `http://127.0.0.1:${hfPort}` } }
   )
   procs.push(runtime)
   let out = ''
