@@ -15,6 +15,8 @@ export interface ModelInfo {
   download_gb?: number
   min_ram_gb?: number
   progress?: { done: number; total: number }
+  /** Bytes already on disk from a failed or interrupted download. */
+  partial_bytes?: number
   active: boolean
 }
 

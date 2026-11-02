@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { describeProgress } from '@/lib/formatDownload'
+import { describeProgress, formatGb } from '@/lib/formatDownload'
 import type { ModelInfo } from '@/lib/types'
 import { useApp } from '@/store/app'
 
-type Pending = { kind: 'cancel' | 'delete'; model: ModelInfo }
+type Pending = { kind: 'cancel' | 'delete' | 'discard'; model: ModelInfo }
 
 export function ModelsSettings(): React.JSX.Element {
   const models = useApp((s) => s.models)
@@ -28,6 +28,8 @@ export function ModelsSettings(): React.JSX.Element {
     const entry = downloads[m.id]
     const downloading = m.status === 'downloading' || (entry !== undefined && !entry.error)
     const failed = !downloading && entry?.error
+    const partial = !downloading && m.status === 'downloadable' ? (m.partial_bytes ?? 0) : 0
+    const resumable = Boolean(failed) || partial > 0
     const otherRunning = running.some((id) => id !== m.id)
     const shown = entry ? describeProgress(entry, now) : null
     return (
@@ -44,17 +46,17 @@ export function ModelsSettings(): React.JSX.Element {
               Cancel
             </button>
           )}
-          {failed && (
+          {resumable && (
             <>
-              <button className="btn" aria-label={`Retry ${m.name}`} onClick={() => void download(m.id)} disabled={otherRunning}>
-                Retry
+              <button className="btn" aria-label={`${failed ? 'Retry' : 'Resume'} ${m.name}`} onClick={() => void download(m.id)} disabled={otherRunning}>
+                {failed ? 'Retry' : 'Resume'}
               </button>
-              <button className="btn ghost" aria-label={`Remove partial download of ${m.name}`} onClick={() => setPending({ kind: 'cancel', model: m })}>
+              <button className="btn ghost" aria-label={`Remove partial download of ${m.name}`} onClick={() => setPending({ kind: 'discard', model: m })}>
                 Remove
               </button>
             </>
           )}
-          {!downloading && !failed && m.status === 'available' && (
+          {!downloading && !resumable && m.status === 'available' && (
             <button
               className="btn ghost"
               aria-label={`Delete ${m.name}`}
@@ -65,7 +67,7 @@ export function ModelsSettings(): React.JSX.Element {
               Delete
             </button>
           )}
-          {!downloading && !failed && m.status === 'downloadable' && (
+          {!downloading && !resumable && m.status === 'downloadable' && (
             <button
               className="btn primary"
               aria-label={`Download ${m.name}`}
@@ -86,6 +88,7 @@ export function ModelsSettings(): React.JSX.Element {
           </>
         )}
         {failed && <div className="mcp-error">{entry.error}</div>}
+        {resumable && <div className="muted mcp-sub">Partial download: {formatGb(partial || (entry?.done ?? 0))} on disk. Resuming continues where it stopped.</div>}
       </div>
     )
   }
@@ -98,11 +101,13 @@ export function ModelsSettings(): React.JSX.Element {
         {local.map(row)}
       </div>
       {pending && (
-        <div className="confirm" role="alertdialog" aria-label={pending.kind === 'cancel' ? 'Cancel download' : 'Delete model'}>
+        <div className="confirm" role="alertdialog" aria-label={pending.kind === 'delete' ? 'Delete model' : pending.kind === 'cancel' ? 'Cancel download' : 'Remove partial download'}>
           <span>
             {pending.kind === 'cancel'
               ? `Cancel the download of “${pending.model.name}”? The partial download will be deleted.`
-              : `Delete “${pending.model.name}”? This frees about ${pending.model.download_gb ?? '?'} GB.`}
+              : pending.kind === 'discard'
+                ? `Remove the partial download of “${pending.model.name}”? It frees ${formatGb(pending.model.partial_bytes ?? downloads[pending.model.id]?.done ?? 0)}.`
+                : `Delete “${pending.model.name}”? This frees about ${pending.model.download_gb ?? '?'} GB.`}
           </span>
           <button className="btn" onClick={() => setPending(null)}>
             {pending.kind === 'cancel' ? 'Keep downloading' : 'Keep'}
@@ -112,10 +117,10 @@ export function ModelsSettings(): React.JSX.Element {
             onClick={() => {
               const { kind, model } = pending
               setPending(null)
-              void (kind === 'cancel' ? cancel(model.id) : remove(model.id))
+              void (kind === 'delete' ? remove(model.id) : cancel(model.id))
             }}
           >
-            {pending.kind === 'cancel' ? 'Cancel download' : 'Delete'}
+            {pending.kind === 'cancel' ? 'Cancel download' : pending.kind === 'discard' ? 'Remove' : 'Delete'}
           </button>
         </div>
       )}

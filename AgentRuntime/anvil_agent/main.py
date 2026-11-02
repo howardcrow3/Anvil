@@ -822,8 +822,9 @@ class AnvilRuntime:
         for cat in MODEL_CATALOG:
             downloaded = self._llama.is_downloaded(cat)
             downloading = cat.id in self._downloads
-            if not (downloaded or downloading or fits_machine(cat, self._total_ram_gb)):
-                continue
+            partial = 0 if downloaded or downloading else self._llama.partial_bytes(cat)
+            if not (downloaded or downloading or partial or fits_machine(cat, self._total_ram_gb)):
+                continue  # not runnable here, and nothing on disk to reclaim
             row: dict[str, Any] = {
                 "id": cat.id,
                 "name": cat.name,
@@ -834,6 +835,8 @@ class AnvilRuntime:
                 "min_ram_gb": cat.min_ram_gb,
                 "active": cat.id == active_id,
             }
+            if partial:
+                row["partial_bytes"] = partial
             if downloading and cat.id in self._progress:
                 row["progress"] = dict(self._progress[cat.id])
             models.append(row)

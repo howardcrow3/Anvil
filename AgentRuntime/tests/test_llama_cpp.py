@@ -481,3 +481,37 @@ async def test_hf_base_env_override(tmp_path, monkeypatch):
     with pytest.raises(LlamaCppError):
         await svc.download(ENTRY)
     assert seen and seen[0].startswith("http://127.0.0.1:9999/api/models/acme/tiny-GGUF/tree/main")
+
+
+async def test_retry_skips_shards_that_already_finished(tmp_path):
+    shard1, shard2 = bytes(range(256)) * 4, bytes(reversed(range(256))) * 4
+    names = ("m-Q4_K_M-00001-of-00002.gguf", "m-Q4_K_M-00002-of-00002.gguf")
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/models/acme/tiny-GGUF/tree/main":
+            return httpx.Response(200, json=[f(names[0], len(shard1)), f(names[1], len(shard2))])
+        seen.append(request.url.path)
+        body = shard1 if names[0] in request.url.path else shard2
+        return httpx.Response(200, content=body)
+
+    svc = LlamaCppService(models_dir=tmp_path)
+    svc._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    d = svc.model_dir(ENTRY)
+    d.mkdir(parents=True)
+    (d / names[0]).write_bytes(shard1)  # finished and renamed before the first attempt failed on shard 2
+    ticks: list[tuple[int, int]] = []
+    path = await svc.download(ENTRY, lambda n, done, total: ticks.append((done, total)))
+    assert all(names[0] not in p for p in seen) and any(names[1] in p for p in seen)
+    assert path.read_bytes() == shard1 and (d / names[1]).read_bytes() == shard2
+    assert ticks[-1] == (len(shard1) + len(shard2), len(shard1) + len(shard2))
+
+
+def test_partial_bytes_counts_an_incomplete_download_only(tmp_path):
+    svc = LlamaCppService(models_dir=tmp_path)
+    assert svc.partial_bytes(ENTRY) == 0
+    d = svc.model_dir(ENTRY)
+    d.mkdir(parents=True)
+    (d / "a.gguf.part").write_bytes(b"x" * 1000)
+    (d / "b.gguf").write_bytes(b"y" * 500)
+    assert svc.partial_bytes(ENTRY) == 1500

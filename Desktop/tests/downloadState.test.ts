@@ -38,6 +38,19 @@ describe('download state reducer', () => {
       c: existing.c
     })
   })
+
+  it('drops running entries the runtime no longer reports as downloading, but keeps failed ones', () => {
+    const models = [
+      { id: 'a', name: 'A', provider: 'local', status: 'downloadable', active: false },
+      { id: 'b', name: 'B', provider: 'local', status: 'downloadable', active: false }
+    ] as ModelInfo[]
+    const existing: Downloads = {
+      a: { done: 5, total: 10, startedAt: 1, startDone: 0 }, // runtime restarted: stale
+      b: { done: 5, total: 10, startedAt: 1, startDone: 0, error: 'network down' },
+      gone: { done: 1, total: 10, startedAt: 1, startDone: 0 } // model no longer listed at all
+    }
+    expect(Object.keys(seedFromModels(models, 0, existing))).toEqual(['b'])
+  })
 })
 
 describe('placeholder entries', () => {

@@ -29,13 +29,19 @@ export function applyDownloadEvent(state: Downloads, e: DownloadProgressEvent, n
   return { ...state, [e.model_id]: { ...prev, done, total } }
 }
 
-/** Adds entries for models the runtime says are downloading (e.g. after a reconnect); existing entries win. */
+/**
+ * Reconciles local entries with `model.list`, which is the runtime's truth: adds entries for models it says are
+ * downloading (e.g. after a reconnect; existing entries win) and drops running entries it no longer reports
+ * (e.g. the runtime restarted). Failed entries stay until the user retries or removes them.
+ */
 export function seedFromModels(models: ModelInfo[], now: number, existing: Downloads): Downloads {
-  const next = { ...existing }
-  for (const m of models) {
-    if (m.status !== 'downloading' || next[m.id]) continue
+  const downloading = new Map(models.filter((m) => m.status === 'downloading').map((m) => [m.id, m]))
+  const next: Downloads = {}
+  for (const [id, entry] of Object.entries(existing)) if (entry.error || downloading.has(id)) next[id] = entry
+  for (const [id, m] of downloading) {
+    if (next[id]) continue
     const done = m.progress?.done ?? 0
-    next[m.id] = { done, total: m.progress?.total ?? 0, startedAt: now, startDone: done }
+    next[id] = { done, total: m.progress?.total ?? 0, startedAt: now, startDone: done }
   }
   return next
 }

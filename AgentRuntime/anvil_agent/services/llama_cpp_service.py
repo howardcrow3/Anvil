@@ -194,6 +194,13 @@ class LlamaCppService:
     def is_downloaded(self, entry: ModelCatalogEntry) -> bool:
         return self.model_path(entry) is not None
 
+    def partial_bytes(self, entry: ModelCatalogEntry) -> int:
+        """Bytes on disk for a model that is not completely downloaded (a failed or interrupted download)."""
+        d = self.model_dir(entry)
+        if not d.is_dir() or self.is_downloaded(entry):
+            return 0
+        return sum(p.stat().st_size for p in d.iterdir() if p.is_file() and p.name != "manifest.json")
+
     def delete(self, entry: ModelCatalogEntry) -> bool:
         d = self.model_dir(entry)
         if not d.is_dir():
@@ -234,6 +241,13 @@ class LlamaCppService:
         for f in files:
             name = Path(f["path"]).name
             sha = (f.get("lfs") or {}).get("oid")
+            finished = dest_dir / name
+            if finished.is_file() and finished.stat().st_size == int(f["size"]):  # verified before it was renamed; do not fetch again
+                done_before += int(f["size"])
+                records.append({"name": name, "size": int(f["size"]), "sha256": sha})
+                if progress:
+                    progress(name, done_before, total)
+                continue
             await self._fetch_file(f"{self._hf_base}/{entry.hf_repo}/resolve/main/{f['path']}", dest_dir / name, int(f["size"]), sha,
                                    lambda got, base=done_before, n=name: progress and progress(n, base + got, total))
             done_before += int(f["size"])

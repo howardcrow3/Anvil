@@ -187,8 +187,11 @@ export const useApp = create<AppStore>((set, get) => ({
 
   async downloadModel(id) {
     try {
-      await call('model.download', { model_id: id })
-      set((s) => ({ downloads: applyDownloadEvent(s.downloads, { model_id: id, done: 0, total: 0 }, Date.now()) }))
+      const result = await call<{ status?: string }>('model.download', { model_id: id })
+      // Only a download that really started gets a placeholder; "ready" means it was already on disk.
+      if (result.status === 'downloading') {
+        set((s) => ({ downloads: applyDownloadEvent(s.downloads, { model_id: id, done: 0, total: 0 }, Date.now()) }))
+      }
       await get().refreshModels()
     } catch (e) {
       set({ notice: message(e) })

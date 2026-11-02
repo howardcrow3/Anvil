@@ -164,3 +164,13 @@ async def test_failed_download_keeps_part_file_then_cancel_removes_it(tmp_path):
     assert any(p.get("status") == "error" for _, p in events)
     result = await rt._handle_model_cancel_download({"model_id": SMALL.id}, None)
     assert result["status"] == "cancelled" and not rt._llama.model_dir(SMALL).exists()
+
+
+async def test_list_reports_and_keeps_partial_downloads_even_if_unfit(tmp_path):
+    rt, _ = make_runtime(tmp_path, 8)  # Scout does not fit 8 GB
+    d = rt._llama.model_dir(SCOUT)
+    d.mkdir(parents=True)
+    (d / "x.gguf.part").write_bytes(b"z" * 2048)
+    rows = {m["id"]: m for m in local(await rt._handle_model_list({}, None))}
+    assert rows[SCOUT.id]["status"] == "downloadable" and rows[SCOUT.id]["partial_bytes"] == 2048
+    assert "partial_bytes" not in rows[SMALL.id]

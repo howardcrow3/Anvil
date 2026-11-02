@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const state = (): { runtime: string } => JSON.parse(readFileSync(resolve(__dirname, '.state.json'), 'utf8'))
@@ -117,4 +117,21 @@ test('delete asks for confirmation first', async ({ page }) => {
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click()
   await expect(page.getByRole('button', { name: `Download ${name}` })).toBeVisible()
   expect(await status(page, id)).toBe('downloadable')
+})
+
+test('a partial download left on disk is shown and can be removed', async ({ page }) => {
+  const { id, name } = await smallest(page)
+  const { models_dir } = await rpc<{ models_dir: string }>(page, 'llama.info')
+  const dir = resolve(models_dir, id.replace(/[^A-Za-z0-9._-]+/g, '_'))
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(resolve(dir, 'model-Q4_0.gguf.part'), Buffer.alloc(2 ** 20)) // as left by an interrupted download
+  await openModels(page)
+  const row = page.locator('.model-row', { hasText: name }).first()
+  await expect(row).toContainText('Partial download')
+  await expect(page.getByRole('button', { name: `Resume ${name}` })).toBeEnabled()
+  await page.getByRole('button', { name: `Remove partial download of ${name}` }).click()
+  await expect(page.getByRole('alertdialog')).toContainText('Remove the partial download')
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByRole('button', { name: `Download ${name}` })).toBeVisible()
+  expect(existsSync(dir)).toBe(false)
 })
