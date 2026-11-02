@@ -183,3 +183,55 @@ def test_installer_unknown_tool_and_unsafe_archive(tmp_path):
     import pytest
     with pytest.raises(RuntimeError):
         _safe_extract(bad, tmp_path / "out")
+
+
+# ── DonSeTch (built-in MCP server) ────────────────────────────────────
+
+def _fake_donsetch(tmp_path, monkeypatch):
+    import sys
+    name = "donsetch" + (".exe" if sys.platform == "win32" else "")
+    d = tmp_path / "tools"
+    d.mkdir()
+    (d / name).write_text("#!/bin/sh\n")
+    (d / name).chmod(0o755)
+    monkeypatch.setenv("ANVIL_TOOLS_DIR", str(d))
+    return str(d / name)
+
+
+def test_donsetch_is_builtin_mcp_server_with_clean_env(tmp_path, monkeypatch):
+    from anvil_agent.mcp.client import MCPClient, MCPServerConnection
+    path = _fake_donsetch(tmp_path, monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+    client = MCPClient(tmp_path / "mcp.json", builtins=True)
+    entry = client.read_entries()["donsetch"]
+    assert entry["command"] == path and entry["args"] == ["mcp"] and entry["inherit_env"] is False
+    env = MCPServerConnection("donsetch", entry)._build_transport().env
+    assert "ANTHROPIC_API_KEY" not in env
+    # off unless asked for (existing callers/tests stay hermetic)
+    assert "donsetch" not in MCPClient(tmp_path / "mcp.json").read_entries()
+
+
+def test_builtin_not_frozen_into_config_and_user_entry_wins(tmp_path, monkeypatch):
+    import json
+    from anvil_agent.mcp.client import MCPClient
+    _fake_donsetch(tmp_path, monkeypatch)
+    cfg = tmp_path / "mcp.json"
+    client = MCPClient(cfg, builtins=True)
+    client.write_servers(client.list_servers())          # UI round-trip of the untouched list
+    assert "donsetch" not in json.loads(cfg.read_text())["mcpServers"]
+    servers = client.list_servers()
+    servers[0]["enabled"] = False                         # user disables it -> persisted override
+    client.write_servers(servers)
+    saved = json.loads(cfg.read_text())["mcpServers"]["donsetch"]
+    assert saved["enabled"] is False and saved["inherit_env"] is False and "builtin" not in saved
+    assert client.list_servers()[0]["status"] == "disabled"
+
+
+def test_donsetch_pins_match_fetch_script():
+    import re
+    from pathlib import Path
+    from anvil_agent.tools.installer import DONSETCH_VERSION, PINNED_DONSETCH
+    js = (Path(__file__).resolve().parents[2] / "Scripts" / "fetch-agent-tools.mjs").read_text()
+    assert f"'{DONSETCH_VERSION}'" in js
+    for key, sha in PINNED_DONSETCH.items():
+        assert re.search(rf"'{key}': '{sha}'", js), key

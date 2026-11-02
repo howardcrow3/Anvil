@@ -49,3 +49,11 @@ prebuilt command-line programs [agent-browser](https://github.com/vercel-labs/ag
 `Scripts/fetch-agent-tools.mjs` copies their unmodified release binaries from the npm packages into
 `Resources/agent-tools/bin/` for distribution, together with their license texts in `Resources/agent-tools/licenses/`.
 Full license: https://www.apache.org/licenses/LICENSE-2.0
+
+## DonSeTch — AGPL-3.0-only (bundled, unmodified, separate process)
+
+Anvil ships the unmodified release binary of [DonSeTch](https://github.com/dondai44423/donsetch) (© Bishesh Bhandari,
+GNU Affero General Public License v3.0) in `Resources/agent-tools/bin/`, fetched and checksum-verified by
+`Scripts/fetch-agent-tools.mjs`. Anvil starts it only as a separate program (`donsetch mcp`, an MCP server over stdio)
+and does not link against or modify it. The license text is in `Resources/agent-tools/licenses/donsetch.txt`.
+Corresponding source for the bundled version: https://github.com/dondai44423/donsetch/tree/v4.10.4
