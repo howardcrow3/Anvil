@@ -65,3 +65,6 @@ htmlcov/
 
 # llama.cpp is bundled from the pinned release by Desktop/scripts/bundle-llama.mjs
 Resources/llama/
+
+# Bundled agent tools (fetched by Scripts/fetch-agent-tools.mjs)
+Resources/agent-tools/
